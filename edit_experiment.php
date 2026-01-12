@@ -136,6 +136,7 @@ if ($form->is_cancelled()) {
     $experimentdata->name = $data->name;
     $experimentdata->type = $data->type;
     $experimentdata->hascrossvalidation = ($data->validation === 'crossvalidation') ? 1 : 0;
+    $experimentdata->navigation_mode = $data->navigation_mode ?? 'free_navigation';
     
     // Handle availability dates.
     if (!empty($data->availabilitystart)) {

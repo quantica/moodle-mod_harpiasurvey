@@ -34,63 +34,84 @@
     * pageviewhtml - Page view HTML if viewing
     * backtocourseurl - URL to go back to course
     * backtocourselabel - Label for back button
+    * current_tab - Current tab (pages or models)
+    * modelshtml - Models view HTML
 }}
-<div class="row">
-    <!-- Left column: Page form/view (larger) -->
-    <div class="col-md-9">
-        <div class="card">
-            <div class="card-body">
-                {{#editing}}
-                    <!-- Editing mode: show form -->
-                    <h4>{{#str}}general, form{{/str}}</h4>
-                    {{{formhtml}}}
-                {{/editing}}
-                {{^editing}}
-                    {{#viewingpage}}
-                        <!-- Viewing mode: show rendered page -->
-                        {{{pageviewhtml}}}
-                    {{/viewingpage}}
-                    {{^viewingpage}}
-                        <!-- No page selected -->
-                        <p class="text-muted">{{selectpagetoadd}}</p>
-                    {{/viewingpage}}
-                {{/editing}}
-            </div>
-        </div>
-    </div>
-
-    <!-- Right column: Pages list (smaller, floated) -->
-    <div class="col-md-3">
-        <div class="card pages-menu-sticky" style="margin-left: -15px;">
-            <div class="card-body">
-                <h5>{{pageslabel}}</h5>
-
+<!-- Pages navigation bar (horizontal, below secondary navigation) - Tab style -->
+{{#is_pages}}
+<div class="pages-navigation-bar mb-3" data-navigation-mode="{{navigation_mode}}" data-canmanage="{{canmanage}}">
+    <div class="pages-tabs-container">
+        <div class="d-flex align-items-center justify-content-between flex-wrap">
+            <div class="pages-tabs-wrapper flex-grow-1 min-w-0">
                 {{#has_pages}}
-                    <div class="list-group">
+                    <ul class="nav nav-tabs pages-tabs" role="tablist">
                         {{#pageslist}}
-                            <div class="list-group-item list-group-item-action{{#is_active}} active{{/is_active}} d-flex justify-content-between align-items-center">
-                                <a href="{{url}}" class="flex-grow-1 text-decoration-none{{#is_active}} text-primary{{/is_active}}">
-                                    {{number}}. {{title}}
+                            <li class="nav-item pages-tab-item{{#is_disabled}} disabled{{/is_disabled}}" role="presentation">
+                                {{#is_disabled}}
+                                    <span class="nav-link pages-tab-link disabled{{#is_active}} active{{/is_active}}" 
+                                          title="{{title}}"
+                                          role="tab"
+                                          aria-disabled="true">
+                                        <span class="page-number">{{number}}</span>
+                                        <span class="page-title">{{title}}</span>
+                                    </span>
+                                {{/is_disabled}}
+                                {{^is_disabled}}
+                                <a href="{{url}}" 
+                                       class="nav-link pages-tab-link page-tab-link{{#is_active}} active{{/is_active}}"
+                                   title="{{title}}"
+                                       role="tab"
+                                       data-pageid="{{id}}">
+                                    <span class="page-number">{{number}}</span>
+                                    <span class="page-title">{{title}}</span>
                                 </a>
-                                {{#canmanage}}
-                                    <a href="{{deleteurl}}" class="ml-2 text-danger" title="{{#str}}delete, moodle{{/str}}">
-                                        <i class="fa fa-trash"></i>
-                                    </a>
-                                {{/canmanage}}
-                            </div>
+                                {{/is_disabled}}
+                            </li>
                         {{/pageslist}}
-                    </div>
+                    </ul>
                 {{/has_pages}}
                 {{^has_pages}}
-                    <p class="text-muted small">{{nopages}}</p>
+                    <div class="text-muted small py-2">{{nopages}}</div>
                 {{/has_pages}}
+            </div>
+            {{#canmanage}}
+                <div class="ml-2 mt-2 mt-md-0">
+                    <a href="{{addpageurl}}" class="btn btn-primary btn-sm add-page-btn">
+                        <i class="fa fa-plus" aria-hidden="true"></i> <span class="add-page-text">{{addpagelabel}}</span>
+                    </a>
+                </div>
+            {{/canmanage}}
+        </div>
+    </div>
+</div>
+{{/is_pages}}
 
-                {{#canmanage}}
-                    <!-- Add page button -->
-                    <div class="mt-3">
-                        <a href="{{addpageurl}}" class="btn btn-primary btn-sm btn-block">{{addpagelabel}}</a>
-                    </div>
-                {{/canmanage}}
+<!-- Main content area (full width now) -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                {{#is_models}}
+                    <!-- Models tab content -->
+                    {{{modelshtml}}}
+                {{/is_models}}
+                {{^is_models}}
+                    {{#editing}}
+                        <!-- Editing mode: show form -->
+                        <h4>{{#str}}general, form{{/str}}</h4>
+                        {{{formhtml}}}
+                    {{/editing}}
+                    {{^editing}}
+                        {{#viewingpage}}
+                            <!-- Viewing mode: show rendered page -->
+                            {{{pageviewhtml}}}
+                        {{/viewingpage}}
+                        {{^viewingpage}}
+                            <!-- No page selected -->
+                            <p class="text-muted">{{selectpagetoadd}}</p>
+                        {{/viewingpage}}
+                    {{/editing}}
+                {{/is_models}}
             </div>
         </div>
     </div>

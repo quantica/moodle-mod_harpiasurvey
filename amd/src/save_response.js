@@ -31,10 +31,8 @@ let initialized = false;
 /**
  * Initialize the save response functionality.
  *
- * @param {number} cmid Course module ID
- * @param {number} pageid Page ID
  */
-export const init = (cmid, pageid) => {
+export const init = () => {
     if (initialized) {
         return;
     }
@@ -178,7 +176,10 @@ const saveAllResponses = (cmid, pageid, questionsToSave, button, statusDiv) => {
         promiseChain = promiseChain.then(() => {
             return new Promise((resolve) => {
                 // Update status.
-                statusDiv.html(`<div class="text-info"><i class="fa fa-spinner fa-spin"></i> Saving ${index + 1} of ${total}...</div>`);
+                const savingHtml = '<div class="text-info"><i class="fa fa-spinner fa-spin"></i> ' +
+                    `Saving ${index + 1} of ${total}...` +
+                    '</div>';
+                statusDiv.html(savingHtml);
 
                 const params = new URLSearchParams({
                     action: 'save_response',
@@ -209,8 +210,10 @@ const saveAllResponses = (cmid, pageid, questionsToSave, button, statusDiv) => {
                         const datetimeStr = now.toLocaleString();
                         getString('saved', 'mod_harpiasurvey').then((savedText) => {
                             getString('on', 'mod_harpiasurvey').then((onText) => {
-                                const questionItem = $(`.question-item[data-questionid="${questionData.questionid}"]`);
-                                const savedMessage = questionItem.find(`.saved-response-message[data-questionid="${questionData.questionid}"]`);
+                                const questionSelector = `.question-item[data-questionid="${questionData.questionid}"]`;
+                                const savedSelector = `.saved-response-message[data-questionid="${questionData.questionid}"]`;
+                                const questionItem = $(questionSelector);
+                                const savedMessage = questionItem.find(savedSelector);
                                 const icon = '<i class="fa fa-check-circle" aria-hidden="true"></i>';
                                 if (savedMessage.length === 0) {
                                     // Create new message element.
@@ -229,7 +232,7 @@ const saveAllResponses = (cmid, pageid, questionsToSave, button, statusDiv) => {
                     }
                     resolve();
                 })
-                .catch(error => {
+                .catch(() => {
                     failedCount++;
                     resolve(); // Continue with next question even on error.
                 });
@@ -245,7 +248,9 @@ const saveAllResponses = (cmid, pageid, questionsToSave, button, statusDiv) => {
         if (failedCount === 0) {
             // All saved successfully.
             button.removeClass('btn-primary').addClass('btn-success');
-            statusDiv.html(`<div class="text-success"><i class="fa fa-check-circle"></i> All ${savedCount} response(s) saved successfully!</div>`);
+            const successHtml = '<div class="text-success"><i class="fa fa-check-circle"></i> ' +
+                `All ${savedCount} response(s) saved successfully!</div>`;
+            statusDiv.html(successHtml);
             setTimeout(() => {
                 button.removeClass('btn-success').addClass('btn-primary');
                 statusDiv.fadeOut();
@@ -253,99 +258,12 @@ const saveAllResponses = (cmid, pageid, questionsToSave, button, statusDiv) => {
         } else {
             // Some failed.
             button.removeClass('btn-primary').addClass('btn-warning');
-            statusDiv.html(`<div class="text-warning"><i class="fa fa-exclamation-triangle"></i> ${savedCount} saved, ${failedCount} failed. Please try again.</div>`);
+            const warningHtml = '<div class="text-warning"><i class="fa fa-exclamation-triangle"></i> ' +
+                `${savedCount} saved, ${failedCount} failed. Please try again.</div>`;
+            statusDiv.html(warningHtml);
             setTimeout(() => {
                 button.removeClass('btn-warning').addClass('btn-primary');
             }, 5000);
         }
     });
 };
-
-/**
- * Save response via AJAX.
- *
- * @param {number} cmid Course module ID
- * @param {number} pageid Page ID
- * @param {number} questionid Question ID
- * @param {string} response Response value
- * @param {jQuery} button Save button element
- */
-const saveResponse = (cmid, pageid, questionid, response, button) => {
-    const originalText = button.text();
-    button.prop('disabled', true);
-    getString('saving', 'mod_harpiasurvey').then((savingText) => {
-        button.text(savingText);
-
-        const params = new URLSearchParams({
-            action: 'save_response',
-            cmid: cmid,
-            pageid: pageid,
-            questionid: questionid,
-            response: response,
-            sesskey: Config.sesskey
-        });
-
-        fetch(Config.wwwroot + '/mod/harpiasurvey/ajax.php?' + params.toString(), {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                // Show success message.
-                getString('saved', 'mod_harpiasurvey').then((savedText) => {
-                    button.text(savedText);
-                    button.removeClass('btn-primary').addClass('btn-success');
-
-                    // Update or show saved message with timestamp.
-                    const savedMessage = $(`.saved-response-message[data-questionid="${questionid}"]`);
-                    if (savedMessage.length === 0) {
-                        // Create new message element.
-                        const now = new Date();
-                        const datetimeStr = now.toLocaleString();
-                        getString('on', 'mod_harpiasurvey').then((onText) => {
-                            const messageHtml = '<div class="mt-1 small text-muted saved-response-message" ' +
-                                `data-questionid="${questionid}">` +
-                                '<i class="fa fa-check-circle" aria-hidden="true"></i> ' +
-                                `${savedText} ${onText} ${datetimeStr}</div>`;
-                            button.after(messageHtml);
-                        });
-                    } else {
-                        // Update existing message timestamp.
-                        const now = new Date();
-                        const datetimeStr = now.toLocaleString();
-                        getString('on', 'mod_harpiasurvey').then((onText) => {
-                            const icon = '<i class="fa fa-check-circle" aria-hidden="true"></i>';
-                            savedMessage.html(`${icon} ${savedText} ${onText} ${datetimeStr}`);
-                        });
-                    }
-
-                    // Reset button after 2 seconds.
-                    setTimeout(() => {
-                        button.prop('disabled', false);
-                        button.text(originalText);
-                        button.removeClass('btn-success').addClass('btn-primary');
-                    }, 2000);
-                });
-            } else {
-                Notification.addNotification({
-                    message: data.message || 'Error saving response',
-                    type: 'error'
-                });
-                button.prop('disabled', false);
-                button.text(originalText);
-            }
-        })
-        .catch(error => {
-            Notification.addNotification({
-                message: 'Error saving response: ' + error.message,
-                type: 'error'
-            });
-            button.prop('disabled', false);
-            button.text(originalText);
-        });
-    });
-};
-

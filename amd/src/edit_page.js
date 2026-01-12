@@ -21,10 +21,6 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-import Notification from 'core/notification';
-import Config from 'core/config';
-import $ from 'jquery';
-
 /**
  * Initialize the edit page functionality.
  */
@@ -32,4 +28,3 @@ export const init = () => {
     // Note: evaluates_conversation_id functionality has been removed.
     // All questions on aichat pages automatically evaluate the page's chat conversation.
 };
-

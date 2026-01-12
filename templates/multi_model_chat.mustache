@@ -1,0 +1,236 @@
+{{!
+    This file is part of Moodle - https://moodle.org/
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+}}
+{{!
+    @template mod_harpiasurvey/multi_model_chat
+
+    Template for multi-model chat interface with tabs.
+
+    Context variables required for this template:
+    * pageid - Page ID
+    * cmid - Course module ID
+    * aichat.model_tabs - Array of model tab data
+    * aichat.has_models - Whether models are available
+    * aichat.show_sidebar - Whether to show the conversation sidebar
+}}
+<div class="row">
+    {{! Conversation tree sidebar (for continuous mode) }}
+    {{#aichat.show_sidebar}}
+        <div class="col-md-3 conversation-tree-wrapper" id="conversation-tree-wrapper-{{pageid}}" style="min-width: 280px; max-width: 350px;">
+            {{> mod_harpiasurvey/conversation_tree }}
+        </div>
+    {{/aichat.show_sidebar}}
+    <div class="{{#aichat.show_sidebar}}col-md-9{{/aichat.show_sidebar}}{{^aichat.show_sidebar}}col-12{{/aichat.show_sidebar}}">
+        <div class="multi-model-chat-container mb-4 mt-4" data-cmid="{{cmid}}" data-pageid="{{pageid}}" data-behavior="{{aichat.behavior}}" {{#aichat.has_min_turns}}data-min-turns="{{aichat.min_turns}}"{{/aichat.has_min_turns}} {{#aichat.has_max_turns}}data-max-turns="{{aichat.max_turns}}"{{/aichat.has_max_turns}}>
+            {{#aichat.has_turn_evaluation_questions}}
+                <script type="application/json" id="turn-evaluation-questions-data-{{pageid}}">{{{aichat.turn_evaluation_questions_json}}}</script>
+            {{/aichat.has_turn_evaluation_questions}}
+            {{#aichat.has_models}}
+        {{! Model tabs navigation }}
+        <ul class="nav nav-tabs mb-3" id="model-tabs-{{pageid}}" role="tablist">
+            {{#aichat.model_tabs}}
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {{#@first}}active{{/@first}}" 
+                            id="model-tab-{{id}}-{{pageid}}" 
+                            data-bs-toggle="tab" 
+                            data-bs-target="#model-pane-{{id}}-{{pageid}}" 
+                            type="button" 
+                            role="tab" 
+                            aria-controls="model-pane-{{id}}-{{pageid}}" 
+                            aria-selected="{{#@first}}true{{/@first}}{{^@first}}false{{/@first}}"
+                            data-model-id="{{id}}">
+                        {{name}}
+                        <small class="text-muted">({{model}})</small>
+                    </button>
+                </li>
+            {{/aichat.model_tabs}}
+        </ul>
+        
+        {{! Tab content panes }}
+        <div class="tab-content" id="model-tab-content-{{pageid}}">
+            {{#aichat.model_tabs}}
+                <div class="tab-pane fade {{#@first}}show active{{/@first}}" 
+                     id="model-pane-{{id}}-{{pageid}}" 
+                     role="tabpanel" 
+                     aria-labelledby="model-tab-{{id}}-{{pageid}}"
+                     data-model-id="{{id}}">
+                    {{! Turn navigation controls (only for turns mode) }}
+                    {{#aichat.is_turns_mode}}
+                        <div class="turn-navigation mb-2 d-flex justify-content-between align-items-center">
+                            <div class="turn-info d-flex align-items-center gap-2">
+                                <button type="button" class="btn btn-sm btn-outline-info toggle-tree-btn" data-pageid="{{pageid}}" data-model-id="{{id}}" title="{{#str}}showconversationtree, mod_harpiasurvey{{/str}}">
+                                    <i class="fa fa-sitemap" aria-hidden="true"></i>
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary toggle-previous-messages-btn" data-pageid="{{pageid}}" data-model-id="{{id}}" title="{{#str}}togglepreviousmessages, mod_harpiasurvey{{/str}}">
+                                    <i class="fa fa-history" aria-hidden="true"></i> {{#str}}showprevious, mod_harpiasurvey{{/str}}
+                                </button>
+                                <span class="badge badge-info" id="current-turn-badge-model-{{id}}-{{pageid}}">
+                                    <span id="current-turn-number-model-{{id}}-{{pageid}}">Turno 1</span>
+                                </span>
+                            </div>
+                        </div>
+                    {{/aichat.is_turns_mode}}
+                    {{! Chat messages area for this model }}
+                    <div class="chat-messages border rounded p-3 mb-2" 
+                         id="chat-messages-model-{{id}}-{{pageid}}" 
+                         style="max-height: 600px; overflow-y: auto; background-color: #f8f9fa;">
+                        {{#has_history}}
+                            {{#conversation_history}}
+                                {{#role.user}}
+                                    <div data-model-id="{{id}}">
+                                        {{> mod_harpiasurvey/chat_user_message }}
+                                    </div>
+                                {{/role.user}}
+                                {{#role.assistant}}
+                                    <div data-model-id="{{id}}">
+                                        {{> mod_harpiasurvey/chat_ai_message }}
+                                    </div>
+                                {{/role.assistant}}
+                            {{/conversation_history}}
+                        {{/has_history}}
+                        {{^has_history}}
+                            <div class="text-center text-muted py-4">
+                                <p>{{#str}}nomessagesyet, mod_harpiasurvey{{/str}}</p>
+                            </div>
+                        {{/has_history}}
+                    </div>
+                    
+                    {{! Input area for this specific model tab }}
+                    <div class="chat-input-container mt-3">
+                        <div class="input-group">
+                            <textarea class="form-control chat-input" 
+                                      id="chat-input-model-{{id}}-{{pageid}}" 
+                                      rows="2" 
+                                      placeholder="{{#str}}typeyourmessage, mod_harpiasurvey{{/str}}"
+                                      data-pageid="{{pageid}}"
+                                      data-model-id="{{id}}"></textarea>
+                            <button class="btn btn-primary chat-send-btn" 
+                                    type="button" 
+                                    id="send-message-btn-model-{{id}}-{{pageid}}"
+                                    data-cmid="{{cmid}}"
+                                    data-pageid="{{pageid}}"
+                                    data-model-id="{{id}}">
+                                <i class="fa fa-arrow-up" aria-hidden="true"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    {{! Loading indicator for this model }}
+                    <div class="chat-loading mt-2" id="chat-loading-model-{{id}}-{{pageid}}" style="display: none;">
+                        {{> mod_harpiasurvey/chat_loading }}
+                    </div>
+                    
+                    {{! Questions for this model tab }}
+                    {{#has_questions}}
+                        <div class="page-questions mt-4">
+                            {{#questions}}
+                                <div class="question-item mb-4" data-questionid="{{id}}" data-questiontype="{{type}}">
+                                    <h5>{{name}}</h5>
+                                    <div class="question-description mb-2">
+                                        {{{description}}}
+                                    </div>
+                                    
+                                    {{#has_options}}
+                                        {{#is_select}}
+                                            {{! Select dropdown }}
+                                            <select class="form-control" name="question_{{id}}" id="question_{{id}}_model_{{id}}_{{pageid}}" {{#has_saved_response}}data-saved-value="{{saved_response}}"{{/has_saved_response}}>
+                                                <option value="">{{#str}}noselection, mod_harpiasurvey{{/str}}</option>
+                                                {{#options}}
+                                                    <option value="{{id}}" {{#isdefault}}selected{{/isdefault}}>{{value}}</option>
+                                                {{/options}}
+                                            </select>
+                                        {{/is_select}}
+                                        {{^is_select}}
+                                            {{#is_likert}}
+                                                {{! Likert scale - horizontal layout }}
+                                                <div class="likert-scale d-flex justify-content-between align-items-center">
+                                                    {{#options}}
+                                                        <div class="likert-option text-center">
+                                                            <input class="form-check-input" type="radio" 
+                                                                   name="question_{{id}}" id="option_{{id}}_model_{{../id}}_{{../pageid}}" value="{{id}}" {{#isdefault}}checked{{/isdefault}}>
+                                                            <label class="form-check-label d-block mt-1" for="option_{{id}}_model_{{../id}}_{{../pageid}}">
+                                                                {{value}}
+                                                            </label>
+                                                        </div>
+                                                    {{/options}}
+                                                </div>
+                                            {{/is_likert}}
+                                            {{^is_likert}}
+                                                {{! Regular radio/checkbox options }}
+                                                <div class="question-options">
+                                                    {{#options}}
+                                                        <div class="form-check">
+                                                            <input class="form-check-input" type="{{inputtype}}" 
+                                                                   name="{{nameattr}}" id="option_{{id}}_model_{{../id}}_{{../pageid}}" value="{{id}}" {{#isdefault}}checked{{/isdefault}}>
+                                                            <label class="form-check-label" for="option_{{id}}_model_{{../id}}_{{../pageid}}">
+                                                                {{value}}
+                                                            </label>
+                                                        </div>
+                                                    {{/options}}
+                                                </div>
+                                            {{/is_likert}}
+                                        {{/is_select}}
+                                    {{/has_options}}
+                                    {{^has_options}}
+                                        {{#is_number}}
+                                            {{! Number input with settings }}
+                                            <input type="number" class="form-control" name="question_{{id}}" id="question_{{id}}_model_{{id}}_{{pageid}}"   
+                                                   {{#numbersettings.has_min}}min="{{numbersettings.min_value}}"{{/numbersettings.has_min}}
+                                                   {{#numbersettings.has_max}}max="{{numbersettings.max_value}}"{{/numbersettings.has_max}}
+                                                   {{#numbersettings.step}}step="{{numbersettings.step}}"{{/numbersettings.step}}
+                                                   {{#has_saved_response}}value="{{saved_response}}"{{/has_saved_response}}{{^has_saved_response}}{{#numbersettings.default}}value="{{numbersettings.default}}"{{/numbersettings.default}}{{/has_saved_response}}>
+                                        {{/is_number}}
+                                        {{#is_shorttext}}
+                                            <input type="text" class="form-control" name="question_{{id}}" id="question_{{id}}_model_{{id}}_{{pageid}}" {{#has_saved_response}}value="{{saved_response}}"{{/has_saved_response}}>
+                                        {{/is_shorttext}}
+                                        {{#is_longtext}}
+                                            <textarea class="form-control" name="question_{{id}}" id="question_{{id}}_model_{{id}}_{{pageid}}" rows="4">{{#has_saved_response}}{{saved_response}}{{/has_saved_response}}</textarea>
+                                        {{/is_longtext}}
+                                    {{/has_options}}
+                                    
+                                    {{! Saved response message for each question }}
+                                    {{#has_saved_response}}
+                                        <div class="mt-2 small text-muted saved-response-message" data-questionid="{{id}}">
+                                            <i class="fa fa-check-circle" aria-hidden="true"></i> {{#str}}saved, mod_harpiasurvey{{/str}} {{#str}}on, mod_harpiasurvey{{/str}} {{saved_datetime}}
+                                        </div>
+                                    {{/has_saved_response}}
+                                </div>
+                            {{/questions}}
+                            
+                            {{! Save button for this model's questions }}
+                            {{#has_questions}}
+                                <div class="mt-4 text-center">
+                                    <button type="button" class="btn btn-primary btn-lg save-all-responses-btn" 
+                                            data-cmid="{{cmid}}"
+                                            data-pageid="{{pageid}}">
+                                        {{#str}}save, mod_harpiasurvey{{/str}}
+                                    </button>
+                                    <div class="mt-2 save-all-status" style="display: none;"></div>
+                                </div>
+                            {{/has_questions}}
+                        </div>
+                    {{/has_questions}}
+                </div>
+            {{/aichat.model_tabs}}
+        </div>
+    {{/aichat.has_models}}
+    {{^aichat.has_models}}
+        {{! No models available message }}
+        <div class="alert alert-warning mb-2">
+            <small>{{#str}}nomodelsavailable, mod_harpiasurvey{{/str}}</small>
+        </div>
+    {{/aichat.has_models}}
+        </div>
+    </div>
+</div>
+

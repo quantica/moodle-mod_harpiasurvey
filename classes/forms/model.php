@@ -81,6 +81,14 @@ class model extends \moodleform {
         $mform->setDefault('harpiasurveyid', $this->_customdata->harpiasurveyid);
         $mform->setConstant('harpiasurveyid', $this->_customdata->harpiasurveyid);
 
+        // Add experiment ID as hidden field if provided.
+        if (isset($this->_customdata->experimentid)) {
+            $mform->addElement('hidden', 'experiment');
+            $mform->setType('experiment', PARAM_INT);
+            $mform->setDefault('experiment', $this->_customdata->experimentid);
+            $mform->setConstant('experiment', $this->_customdata->experimentid);
+        }
+
         // General section header.
         $mform->addElement('header', 'general', get_string('general', 'form'));
 
@@ -93,7 +101,7 @@ class model extends \moodleform {
             $mform->setDefault('name', $this->_customdata->name);
         }
 
-        // Model identifier field.
+        // Model identifier field (the actual model ID used in API requests, e.g., "gpt-4o", "gpt-3.5-turbo").
         $mform->addElement('text', 'model', get_string('modelidentifier', 'mod_harpiasurvey'), ['size' => '64']);
         $mform->addRule('model', get_string('required'), 'required', null, 'client');
         $mform->addRule('model', get_string('maximumchars', '', 255), 'maxlength', 255, 'client');
@@ -102,6 +110,8 @@ class model extends \moodleform {
             $mform->setDefault('model', $this->_customdata->model);
         }
         $mform->addHelpButton('model', 'modelidentifier', 'mod_harpiasurvey');
+        $mform->addElement('static', 'model_help', '', '<div class="form-text text-muted">' . 
+            get_string('modelidentifier_help', 'mod_harpiasurvey') . '</div>');
 
         // Base URL field.
         $mform->addElement('text', 'endpoint', get_string('baseurl', 'mod_harpiasurvey'), ['size' => '64']);

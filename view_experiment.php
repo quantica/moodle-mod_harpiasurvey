@@ -110,9 +110,13 @@ $PAGE->requires->css('/mod/harpiasurvey/styles.css');
 // Hide the module intro/description in the activity header.
 $PAGE->activityheader->set_attrs(['description' => '']);
 
+// Check which tab we're viewing (pages or models).
+$tab = optional_param('tab', 'pages', PARAM_ALPHA);
+
 // Check if we're editing a page - if so, load JavaScript for question bank modal.
 $pageid = optional_param('page', 0, PARAM_INT);
 $edit = optional_param('edit', 0, PARAM_INT);
+$turn = optional_param('turn', null, PARAM_INT);
 if ($pageid && $edit) {
     $PAGE->requires->js_call_amd('mod_harpiasurvey/question_bank_modal', 'init', [
         $cm->id,
@@ -127,8 +131,9 @@ $PAGE->navbar->add(format_string($experiment->name));
 echo $OUTPUT->header();
 
 // Display experiment header.
+$headerlabel = ($tab === 'models') ? get_string('models', 'mod_harpiasurvey') : get_string('pages', 'mod_harpiasurvey');
 if ($canmanage) {
-    echo $OUTPUT->heading(format_string($experiment->name) . ': ' . get_string('pages', 'mod_harpiasurvey'), 3);
+    echo $OUTPUT->heading(format_string($experiment->name) . ': ' . $headerlabel, 3);
 } else {
     echo $OUTPUT->heading(format_string($experiment->name), 3);
 }
@@ -171,10 +176,26 @@ if ($pageid) {
         $formdata->descriptionformat = $viewingpage->descriptionformat;
         $formdata->type = $viewingpage->type;
         $formdata->behavior = $viewingpage->behavior ?? 'continuous';
+        // Set min_turns and max_turns - use empty string instead of null for form compatibility.
+        $formdata->min_turns = isset($viewingpage->min_turns) && $viewingpage->min_turns !== null ? (int)$viewingpage->min_turns : '';
+        $formdata->max_turns = isset($viewingpage->max_turns) && $viewingpage->max_turns !== null ? (int)$viewingpage->max_turns : '';
         $formdata->available = $viewingpage->available;
         
         $formurl = new moodle_url('/mod/harpiasurvey/edit_page.php', ['id' => $cm->id, 'experiment' => $experiment->id, 'page' => $pageid]);
         $form = new \mod_harpiasurvey\forms\page($formurl, $formdata, $context);
+        
+        // Explicitly set data for all fields to ensure values are populated
+        // even when fields are conditionally hidden. This must be called after form construction.
+        $formdataarray = (array)$formdata;
+        // Ensure min_turns and max_turns are properly formatted as strings.
+        if (isset($formdataarray['min_turns'])) {
+            $formdataarray['min_turns'] = $formdataarray['min_turns'] === '' || $formdataarray['min_turns'] === null ? '' : (string)(int)$formdataarray['min_turns'];
+        }
+        if (isset($formdataarray['max_turns'])) {
+            $formdataarray['max_turns'] = $formdataarray['max_turns'] === '' || $formdataarray['max_turns'] === null ? '' : (string)(int)$formdataarray['max_turns'];
+        }
+        $form->set_data($formdataarray);
+        
         $form->display();
         $formhtml = ob_get_clean();
     } else {
@@ -184,21 +205,31 @@ if ($pageid) {
         // Get questions for this page (only enabled ones will be shown).
         // Get questions for this page (all question types are allowed on all page types now).
         $sql = "SELECT pq.*, q.id AS questionid, q.name, q.type, q.description, q.descriptionformat, q.settings,
-                       pq.min_turn
+                       pq.min_turn, pq.show_only_turn, pq.hide_on_turn, pq.show_only_model, pq.hide_on_model
                   FROM {harpiasurvey_page_questions} pq
                   JOIN {harpiasurvey_questions} q ON q.id = pq.questionid
                  WHERE pq.pageid = :pageid AND pq.enabled = 1 AND q.enabled = 1
               ORDER BY pq.sortorder ASC";
         
-        $pagequestions = $DB->get_records_sql($sql, ['pageid' => $pageid]);
+        $allpagequestions = $DB->get_records_sql($sql, ['pageid' => $pageid]);
+        
+        // For turns-based pages, we don't filter questions here because:
+        // 1. Questions with turn visibility rules should be excluded from regular list (handled in page_view.php)
+        // 2. All questions need to be available for turn evaluation questions JSON (JavaScript will filter them)
+        // For non-turns pages, show all questions.
+        $pagequestions = $allpagequestions;
         
         if ($canmanage) {
             $editurl = new moodle_url('/mod/harpiasurvey/view_experiment.php', ['id' => $cm->id, 'experiment' => $experiment->id, 'page' => $pageid, 'edit' => 1]);
             $editurl = $editurl->out(false);
+            $deleteurl = new moodle_url('/mod/harpiasurvey/delete_page.php', ['id' => $cm->id, 'experiment' => $experiment->id, 'page' => $pageid]);
+            $deleteurl = $deleteurl->out(false);
         } else {
             $editurl = '';
+            $deleteurl = '';
         }
-        $pageview = new \mod_harpiasurvey\output\page_view($viewingpage, $context, $editurl, $pagequestions, $cm->id, $pageid, $pages, $experiment->id, $canmanage);
+        $navigation_mode = $experiment->navigation_mode ?? 'free_navigation';
+        $pageview = new \mod_harpiasurvey\output\page_view($viewingpage, $context, $editurl, $pagequestions, $cm->id, $pageid, $pages, $experiment->id, $canmanage, $deleteurl, $navigation_mode, $turn);
         $renderer = $PAGE->get_renderer('mod_harpiasurvey');
         $pageviewhtml = $renderer->render($pageview);
         
@@ -209,12 +240,37 @@ if ($pageid) {
         ]);
         
         // Load JavaScript for AI conversation (only in view mode, not edit mode).
-        $PAGE->requires->js_call_amd('mod_harpiasurvey/ai_conversation', 'init');
+        if ($viewingpage->type === 'aichat') {
+            // Use the main init function which detects and initializes the appropriate module
+            $PAGE->requires->js_call_amd('mod_harpiasurvey/ai_conversation', 'init');
+        }
+        
+        // Load JavaScript for navigation control (only in view mode, not edit mode, and only for non-admins).
+        if (!$canmanage) {
+            $PAGE->requires->js_call_amd('mod_harpiasurvey/navigation_control', 'init', [$canmanage]);
+        }
     }
+}
+
+// Get models for this experiment if viewing models tab.
+$modelshtml = '';
+if ($tab === 'models') {
+    // Get all models for this harpiasurvey instance (not just those associated with the experiment).
+    // This allows admins to see and manage all models, and associate them with experiments.
+    $models = $DB->get_records('harpiasurvey_models', [
+        'harpiasurveyid' => $harpiasurvey->id
+    ], 'name ASC');
+    
+    // Render models view.
+    require_once(__DIR__.'/classes/output/models_view.php');
+    $modelsview = new \mod_harpiasurvey\output\models_view($models, $context, $cm->id, $experiment->id, $canmanage);
+    $renderer = $PAGE->get_renderer('mod_harpiasurvey');
+    $modelshtml = $renderer->render($modelsview);
 }
 
 // Create and render experiment view.
 require_once(__DIR__.'/classes/output/experiment_view.php');
+$navigation_mode = $experiment->navigation_mode ?? 'free_navigation';
 $experimentview = new \mod_harpiasurvey\output\experiment_view(
     $experiment,
     $pages,
@@ -225,10 +281,12 @@ $experimentview = new \mod_harpiasurvey\output\experiment_view(
     $edit && $canmanage, // Only allow editing if user can manage.
     $formhtml,
     $pageviewhtml,
-    $canmanage
+    $canmanage,
+    $navigation_mode,
+    $tab,
+    $modelshtml
 );
 $renderer = $PAGE->get_renderer('mod_harpiasurvey');
 echo $renderer->render_experiment_view($experimentview);
 
 echo $OUTPUT->footer();
-

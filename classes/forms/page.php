@@ -36,6 +36,13 @@ class page extends \moodleform {
     protected $context;
 
     /**
+     * Additional form data to set after definition.
+     *
+     * @var \stdClass
+     */
+    protected $_formdata;
+
+    /**
      * Class constructor
      *
      * @param moodle_url|string $url
@@ -143,7 +150,6 @@ class page extends \moodleform {
         $behavioroptions = [
             'continuous' => get_string('pagebehaviorcontinuous', 'mod_harpiasurvey'),
             'turns' => get_string('pagebehaviorturns', 'mod_harpiasurvey'),
-            'multi_model' => get_string('pagebehaviormultimodel', 'mod_harpiasurvey'),
         ];
         $mform->addElement('select', 'behavior', get_string('pagebehavior', 'mod_harpiasurvey'), $behavioroptions);
         $mform->addHelpButton('behavior', 'pagebehavior', 'mod_harpiasurvey');
@@ -156,7 +162,29 @@ class page extends \moodleform {
         // Only show behavior field for aichat pages.
         $mform->hideIf('behavior', 'type', 'neq', 'aichat');
 
-        // Model selection (only for aichat pages, and only when behavior is not multi_model).
+        // Min turns field (only for turns behavior).
+        $mform->addElement('text', 'min_turns', get_string('minturns', 'mod_harpiasurvey'), ['size' => '5']);
+        $mform->setType('min_turns', PARAM_INT);
+        $mform->addHelpButton('min_turns', 'minturns', 'mod_harpiasurvey');
+        $mform->hideIf('min_turns', 'type', 'neq', 'aichat');
+        $mform->hideIf('min_turns', 'behavior', 'neq', 'turns');
+        // Set default value if available in customdata.
+        if (isset($this->_customdata->min_turns) && $this->_customdata->min_turns !== '' && $this->_customdata->min_turns !== null) {
+            $mform->setDefault('min_turns', (string)(int)$this->_customdata->min_turns);
+        }
+
+        // Max turns field (only for turns behavior).
+        $mform->addElement('text', 'max_turns', get_string('maxturns', 'mod_harpiasurvey'), ['size' => '5']);
+        $mform->setType('max_turns', PARAM_INT);
+        $mform->addHelpButton('max_turns', 'maxturns', 'mod_harpiasurvey');
+        $mform->hideIf('max_turns', 'type', 'neq', 'aichat');
+        $mform->hideIf('max_turns', 'behavior', 'neq', 'turns');
+        // Set default value if available in customdata.
+        if (isset($this->_customdata->max_turns) && $this->_customdata->max_turns !== '' && $this->_customdata->max_turns !== null) {
+            $mform->setDefault('max_turns', (string)(int)$this->_customdata->max_turns);
+        }
+
+        // Model selection (only for aichat pages).
         global $DB;
         $harpiasurveyid = isset($this->_customdata->harpiasurveyid) ? $this->_customdata->harpiasurveyid : 0;
         if ($harpiasurveyid) {
@@ -188,16 +216,14 @@ class page extends \moodleform {
                     $mform->setDefault('pagemodels', $selectedmodelids);
                 }
                 
-                // Only show when type is aichat and behavior is not multi_model.
+                // Only show when type is aichat.
                 // hideIf must be called after setDefault to ensure values are preserved.
                 $mform->hideIf('pagemodels', 'type', 'neq', 'aichat');
-                $mform->hideIf('pagemodels', 'behavior', 'eq', 'multi_model');
             } else {
                 // Even if no models are available, add a message field to inform the user.
                 $mform->addElement('static', 'pagemodels_none', '', 
                     '<div class="alert alert-info">' . get_string('nomodelsavailable', 'mod_harpiasurvey') . '</div>');
                 $mform->hideIf('pagemodels_none', 'type', 'neq', 'aichat');
-                $mform->hideIf('pagemodels_none', 'behavior', 'eq', 'multi_model');
             }
         }
 
@@ -223,6 +249,7 @@ class page extends \moodleform {
             
             $pagequestions = $DB->get_records_sql(
                 "SELECT pq.id, pq.pageid, pq.questionid, pq.enabled, pq.sortorder, pq.timecreated,
+                        pq.min_turn, pq.show_only_turn, pq.hide_on_turn, pq.show_only_model, pq.hide_on_model,
                         q.name, q.type
                    FROM {harpiasurvey_page_questions} pq
                    JOIN {harpiasurvey_questions} q ON q.id = pq.questionid
@@ -235,12 +262,37 @@ class page extends \moodleform {
             $questionstable = '<div class="mb-3"></div>';
             
             if (!empty($pagequestions)) {
+                // Check if this is a turns-based aichat page to show turn visibility fields.
+                $showturnfields = false;
+                $showmodelfields = false;
+                if (isset($this->_customdata->type) && $this->_customdata->type === 'aichat') {
+                    if (isset($this->_customdata->behavior) && $this->_customdata->behavior === 'turns') {
+                        $showturnfields = true;
+                    }
+                    // Show model fields for continuous mode with multiple models (multi-model).
+                    if (isset($this->_customdata->behavior) && $this->_customdata->behavior === 'continuous') {
+                        // Check if page has multiple models.
+                        $pagemodels = $DB->get_records('harpiasurvey_page_models', ['pageid' => $pageid]);
+                        if (count($pagemodels) > 1) {
+                            $showmodelfields = true;
+                        }
+                    }
+                }
+                
                 $questionstable .= '<table class="table table-hover table-bordered" style="width: 100%;">';
                 $questionstable .= '<thead class="table-dark">';
                 $questionstable .= '<tr>';
                 $questionstable .= '<th scope="col">' . get_string('question', 'mod_harpiasurvey') . '</th>';
                 $questionstable .= '<th scope="col">' . get_string('type', 'mod_harpiasurvey') . '</th>';
                 $questionstable .= '<th scope="col">' . get_string('enabled', 'mod_harpiasurvey') . '</th>';
+                if ($showturnfields) {
+                    $questionstable .= '<th scope="col">' . get_string('showonlyturn', 'mod_harpiasurvey') . '</th>';
+                    $questionstable .= '<th scope="col">' . get_string('hideonturn', 'mod_harpiasurvey') . '</th>';
+                }
+                if ($showmodelfields) {
+                    $questionstable .= '<th scope="col">' . get_string('showonlymodel', 'mod_harpiasurvey') . '</th>';
+                    $questionstable .= '<th scope="col">' . get_string('hideonmodel', 'mod_harpiasurvey') . '</th>';
+                }
                 $questionstable .= '<th scope="col">' . get_string('actions', 'mod_harpiasurvey') . '</th>';
                 $questionstable .= '</tr>';
                 $questionstable .= '</thead>';
@@ -257,6 +309,60 @@ class page extends \moodleform {
                     $questionstable .= '<td>';
                     $questionstable .= '<input type="checkbox" id="' . $enabledid . '" name="question_enabled[' . $pq->id . ']" value="1" ' . $enabledchecked . '>';
                     $questionstable .= '</td>';
+                    
+                    // Turn visibility fields (only for turns-based aichat pages).
+                    if ($showturnfields) {
+                        // Show only on turn N field.
+                        $showonlyturnid = 'question_show_only_turn_' . $pq->id;
+                        $showonlyturnvalue = isset($pq->show_only_turn) && $pq->show_only_turn !== null ? (int)$pq->show_only_turn : '';
+                        $questionstable .= '<td>';
+                        $questionstable .= '<input type="number" id="' . $showonlyturnid . '" name="question_show_only_turn[' . $pq->id . ']" value="' . htmlspecialchars($showonlyturnvalue) . '" min="1" style="width: 80px;" placeholder="' . get_string('allturns', 'mod_harpiasurvey') . '">';
+                        $questionstable .= '</td>';
+                        
+                        // Hide on turn N field.
+                        $hideonturnid = 'question_hide_on_turn_' . $pq->id;
+                        $hideonturnvalue = isset($pq->hide_on_turn) && $pq->hide_on_turn !== null ? (int)$pq->hide_on_turn : '';
+                        $questionstable .= '<td>';
+                        $questionstable .= '<input type="number" id="' . $hideonturnid . '" name="question_hide_on_turn[' . $pq->id . ']" value="' . htmlspecialchars($hideonturnvalue) . '" min="1" style="width: 80px;" placeholder="' . get_string('none', 'mod_harpiasurvey') . '">';
+                        $questionstable .= '</td>';
+                    }
+                    
+                    // Model visibility fields (only for continuous multi-model aichat pages).
+                    if ($showmodelfields) {
+                        // Get models for this page to show in dropdown.
+                        $pagemodels = $DB->get_records('harpiasurvey_page_models', ['pageid' => $pageid], '', 'modelid');
+                        $modelids = array_keys($pagemodels);
+                        $models = [];
+                        if (!empty($modelids)) {
+                            $models = $DB->get_records_list('harpiasurvey_models', 'id', $modelids, 'name ASC');
+                        }
+                        
+                        // Show only for model dropdown.
+                        $showonlymodelid = 'question_show_only_model_' . $pq->id;
+                        $showonlymodelvalue = isset($pq->show_only_model) && $pq->show_only_model !== null ? (int)$pq->show_only_model : '';
+                        $questionstable .= '<td>';
+                        $questionstable .= '<select id="' . $showonlymodelid . '" name="question_show_only_model[' . $pq->id . ']" style="width: 150px;">';
+                        $questionstable .= '<option value="">' . get_string('allmodels', 'mod_harpiasurvey') . '</option>';
+                        foreach ($models as $model) {
+                            $selected = ($showonlymodelvalue == $model->id) ? 'selected' : '';
+                            $questionstable .= '<option value="' . $model->id . '" ' . $selected . '>' . format_string($model->name) . '</option>';
+                        }
+                        $questionstable .= '</select>';
+                        $questionstable .= '</td>';
+                        
+                        // Hide on model dropdown.
+                        $hideonmodelid = 'question_hide_on_model_' . $pq->id;
+                        $hideonmodelvalue = isset($pq->hide_on_model) && $pq->hide_on_model !== null ? (int)$pq->hide_on_model : '';
+                        $questionstable .= '<td>';
+                        $questionstable .= '<select id="' . $hideonmodelid . '" name="question_hide_on_model[' . $pq->id . ']" style="width: 150px;">';
+                        $questionstable .= '<option value="">' . get_string('none', 'mod_harpiasurvey') . '</option>';
+                        foreach ($models as $model) {
+                            $selected = ($hideonmodelvalue == $model->id) ? 'selected' : '';
+                            $questionstable .= '<option value="' . $model->id . '" ' . $selected . '>' . format_string($model->name) . '</option>';
+                        }
+                        $questionstable .= '</select>';
+                        $questionstable .= '</td>';
+                    }
                     
                     // Actions: remove from page.
                     $removeurl = new \moodle_url('/mod/harpiasurvey/remove_page_question.php', [
@@ -291,6 +397,7 @@ class page extends \moodleform {
             $mform->addElement('static', 'questions_info', '', '<p class="text-muted">' . get_string('savepagetoaddquestions', 'mod_harpiasurvey') . '</p>');
         }
 
+
         // Add action buttons.
         $this->add_action_buttons(true, get_string('save', 'mod_harpiasurvey'));
     }
@@ -318,10 +425,43 @@ class page extends \moodleform {
     public function definition_after_data() {
         parent::definition_after_data();
         
-        // Ensure pagemodels values are set if they exist in customdata.
         $mform = $this->_form;
         $pageid = isset($this->_customdata->id) ? $this->_customdata->id : 0;
         
+        // Set min_turns and max_turns values from customdata (for editing).
+        // This is called after form definition, so we need to explicitly set values
+        // even if they were set in definition() because hideIf might prevent them from showing.
+        if (isset($this->_customdata->min_turns) && $mform->elementExists('min_turns')) {
+            $minturns = $this->_customdata->min_turns;
+            // Convert to string for form display.
+            if ($minturns === '' || $minturns === null) {
+                $minturnsvalue = '';
+            } else {
+                $minturnsvalue = (string)(int)$minturns;
+            }
+            // Force set the value using set_data approach.
+            $currentvalue = $mform->getElementValue('min_turns');
+            if ($currentvalue === null || (is_array($currentvalue) && empty($currentvalue))) {
+                $mform->setDefault('min_turns', $minturnsvalue);
+            }
+        }
+        
+        if (isset($this->_customdata->max_turns) && $mform->elementExists('max_turns')) {
+            $maxturns = $this->_customdata->max_turns;
+            // Convert to string for form display.
+            if ($maxturns === '' || $maxturns === null) {
+                $maxturnsvalue = '';
+            } else {
+                $maxturnsvalue = (string)(int)$maxturns;
+            }
+            // Force set the value using set_data approach.
+            $currentvalue = $mform->getElementValue('max_turns');
+            if ($currentvalue === null || (is_array($currentvalue) && empty($currentvalue))) {
+                $mform->setDefault('max_turns', $maxturnsvalue);
+            }
+        }
+        
+        // Ensure pagemodels values are set if they exist in customdata.
         if ($pageid && $mform->elementExists('pagemodels')) {
             global $DB;
             $selectedmodels = $DB->get_records('harpiasurvey_page_models', ['pageid' => $pageid], '', 'modelid');
@@ -337,6 +477,40 @@ class page extends \moodleform {
                 }
             }
         }
+    }
+
+    /**
+     * Form validation.
+     *
+     * @param array $data Form data
+     * @param array $files Files
+     * @return array Errors
+     */
+    public function validation($data, $files) {
+        $errors = parent::validation($data, $files);
+        
+        // Validate min_turns and max_turns if behavior is turns.
+        if (isset($data['behavior']) && $data['behavior'] === 'turns') {
+            $minturns = !empty($data['min_turns']) ? (int)$data['min_turns'] : null;
+            $maxturns = !empty($data['max_turns']) ? (int)$data['max_turns'] : null;
+            
+            // Min turns must be positive if set.
+            if ($minturns !== null && $minturns < 1) {
+                $errors['min_turns'] = get_string('invalidnumber', 'mod_harpiasurvey');
+            }
+            
+            // Max turns must be positive if set.
+            if ($maxturns !== null && $maxturns < 1) {
+                $errors['max_turns'] = get_string('invalidnumber', 'mod_harpiasurvey');
+            }
+            
+            // Max turns must be >= min turns if both are set.
+            if ($minturns !== null && $maxturns !== null && $maxturns < $minturns) {
+                $errors['max_turns'] = get_string('maxturnsmustbegreaterthanminturns', 'mod_harpiasurvey');
+            }
+        }
+        
+        return $errors;
     }
 }
 

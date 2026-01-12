@@ -37,18 +37,51 @@
                 <th scope="col">{{userlabel}}</th>
                 <th scope="col">{{questionlabel}}</th>
                 <th scope="col">{{questiontypelabel}}</th>
+                <th scope="col">{{conversationtypelabel}}</th>
+                <th scope="col">{{modellabel}}</th>
                 <th scope="col">{{evaluatesconversationlabel}}</th>
+                <th scope="col">{{turnidlabel}}</th>
                 <th scope="col">{{answerlabel}}</th>
                 <th scope="col">{{timelabel}}</th>
+                <th scope="col">{{timemodifiedlabel}}</th>
+                <th scope="col">{{editedlabel}}</th>
             </tr>
         </thead>
         <tbody>
             {{#has_responses}}
                 {{#responses}}
-                    <tr>
+                    <tr {{#was_edited}}{{^is_latest}}class="table-secondary"{{/is_latest}}{{/was_edited}}>
                         <td>{{user}}</td>
                         <td>{{question}}</td>
                         <td>{{questiontype}}</td>
+                        <td>
+                            {{#isconversation}}
+                                {{#conversationtypelabel}}
+                                    <span class="badge badge-primary">{{conversationtypelabel}}</span>
+                                {{/conversationtypelabel}}
+                            {{/isconversation}}
+                            {{^isconversation}}
+                                <span class="text-muted">—</span>
+                            {{/isconversation}}
+                        </td>
+                        <td>
+                            {{#isconversation}}
+                                {{#ismultimodel}}
+                                    <span class="badge badge-info">{{modelnamesstr}}</span>
+                                {{/ismultimodel}}
+                                {{^ismultimodel}}
+                                    {{#modelnamesstr}}
+                                        <span class="badge badge-secondary">{{modelnamesstr}}</span>
+                                    {{/modelnamesstr}}
+                                    {{^modelnamesstr}}
+                                        <span class="text-muted">—</span>
+                                    {{/modelnamesstr}}
+                                {{/ismultimodel}}
+                            {{/isconversation}}
+                            {{^isconversation}}
+                                <span class="text-muted">—</span>
+                            {{/isconversation}}
+                        </td>
                         <td>
                             {{#evaluatesconversation}}
                                 <span class="badge badge-info">{{evaluatesconversation}}</span>
@@ -58,6 +91,14 @@
                                     <span class="text-muted">—</span>
                                 {{/isconversation}}
                             {{/evaluatesconversation}}
+                        </td>
+                        <td>
+                            {{#turn_id}}
+                                <span class="badge badge-secondary">{{turn_id}}</span>
+                            {{/turn_id}}
+                            {{^turn_id}}
+                                <span class="text-muted">—</span>
+                            {{/turn_id}}
                         </td>
                         <td>
                             {{#isconversation}}
@@ -119,13 +160,41 @@
                             </div>
                             {{/isconversation}}
                         </td>
-                        <td>{{timecreated}}</td>
+                        <td>
+                            {{timecreated}}
+                            {{#was_edited}}
+                                {{#is_latest}}
+                                    <span class="badge badge-success ml-1" title="{{#str}}latestanswer, mod_harpiasurvey{{/str}}">{{#str}}latestanswer, mod_harpiasurvey{{/str}}</span>
+                                {{/is_latest}}
+                            {{/was_edited}}
+                        </td>
+                        <td>
+                            {{#timemodified}}
+                                {{timemodified}}
+                            {{/timemodified}}
+                            {{^timemodified}}
+                                <span class="text-muted">—</span>
+                            {{/timemodified}}
+                        </td>
+                        <td>
+                            {{#was_edited}}
+                                <span class="badge badge-warning">{{#str}}yes{{/str}}</span>
+                                {{#edit_count}}
+                                    {{#is_latest}}
+                                        <small class="text-muted d-block">({{edit_count}} {{#str}}times{{/str}})</small>
+                                    {{/is_latest}}
+                                {{/edit_count}}
+                            {{/was_edited}}
+                            {{^was_edited}}
+                                <span class="text-muted">{{#str}}no{{/str}}</span>
+                            {{/was_edited}}
+                        </td>
                     </tr>
                 {{/responses}}
             {{/has_responses}}
             {{^has_responses}}
                 <tr>
-                    <td colspan="6" class="text-center">{{noresponses}}</td>
+                    <td colspan="11" class="text-center">{{noresponses}}</td>
                 </tr>
             {{/has_responses}}
         </tbody>

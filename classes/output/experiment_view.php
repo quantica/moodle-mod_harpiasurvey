@@ -82,6 +82,21 @@ class experiment_view implements renderable, templatable {
     public $canmanage;
 
     /**
+     * @var string Navigation mode (free_navigation, only_forward)
+     */
+    public $navigation_mode;
+
+    /**
+     * @var string Current tab (pages or models)
+     */
+    public $tab;
+
+    /**
+     * @var string Models view HTML
+     */
+    public $modelshtml;
+
+    /**
      * Class constructor.
      *
      * @param object $experiment
@@ -94,8 +109,11 @@ class experiment_view implements renderable, templatable {
      * @param string $formhtml
      * @param string $pageviewhtml
      * @param bool $canmanage
+     * @param string $navigation_mode
+     * @param string $tab
+     * @param string $modelshtml
      */
-    public function __construct($experiment, $pages, $context, $cmid, $experimentid, $viewingpage = null, $editing = false, $formhtml = '', $pageviewhtml = '', $canmanage = true) {
+    public function __construct($experiment, $pages, $context, $cmid, $experimentid, $viewingpage = null, $editing = false, $formhtml = '', $pageviewhtml = '', $canmanage = true, $navigation_mode = 'free_navigation', $tab = 'pages', $modelshtml = '') {
         $this->experiment = $experiment;
         $this->pages = $pages;
         $this->context = $context;
@@ -106,6 +124,9 @@ class experiment_view implements renderable, templatable {
         $this->formhtml = $formhtml;
         $this->pageviewhtml = $pageviewhtml;
         $this->canmanage = $canmanage;
+        $this->navigation_mode = $navigation_mode;
+        $this->tab = $tab;
+        $this->modelshtml = $modelshtml;
     }
 
     /**
@@ -121,7 +142,19 @@ class experiment_view implements renderable, templatable {
         $pageslist = [];
         $pagenum = 1;
         $currentpageid = $this->viewingpage ? $this->viewingpage->id : null;
-        foreach ($this->pages as $page) {
+        $currentpageindex = -1;
+        
+        // Find current page index for only_forward mode.
+        if ($currentpageid && $this->navigation_mode === 'only_forward') {
+            foreach ($this->pages as $index => $page) {
+                if ($page->id == $currentpageid) {
+                    $currentpageindex = $index;
+                    break;
+                }
+            }
+        }
+        
+        foreach ($this->pages as $index => $page) {
             $pageurl = new \moodle_url('/mod/harpiasurvey/view_experiment.php', [
                 'id' => $this->cmid,
                 'experiment' => $this->experimentid,
@@ -132,6 +165,13 @@ class experiment_view implements renderable, templatable {
                 'experiment' => $this->experimentid,
                 'page' => $page->id
             ]);
+            
+            // In only_forward mode, disable tabs for previous pages (only for non-admins).
+            $is_disabled = false;
+            if (!$this->canmanage && $this->navigation_mode === 'only_forward' && $currentpageindex >= 0 && $index < $currentpageindex) {
+                $is_disabled = true;
+            }
+            
             $pageslist[] = [
                 'id' => $page->id,
                 'number' => $pagenum++,
@@ -139,6 +179,7 @@ class experiment_view implements renderable, templatable {
                 'url' => $pageurl->out(false),
                 'deleteurl' => $deleteurl->out(false),
                 'is_active' => ($currentpageid && $page->id == $currentpageid),
+                'is_disabled' => $is_disabled,
             ];
         }
 
@@ -149,7 +190,13 @@ class experiment_view implements renderable, templatable {
         ]);
         $pagesurl = new \moodle_url('/mod/harpiasurvey/view_experiment.php', [
             'id' => $this->cmid,
-            'experiment' => $this->experimentid
+            'experiment' => $this->experimentid,
+            'tab' => 'pages'
+        ]);
+        $modelsurl = new \moodle_url('/mod/harpiasurvey/view_experiment.php', [
+            'id' => $this->cmid,
+            'experiment' => $this->experimentid,
+            'tab' => 'models'
         ]);
 
         // Add page URL.
@@ -165,8 +212,10 @@ class experiment_view implements renderable, templatable {
         return [
             'experimentname' => format_string($this->experiment->name),
             'pageslabel' => get_string('pages', 'mod_harpiasurvey'),
+            'modelslabel' => get_string('models', 'mod_harpiasurvey'),
             'questionsurl' => $questionsurl->out(false),
             'pagesurl' => $pagesurl->out(false),
+            'modelsurl' => $modelsurl->out(false),
             'questionslabel' => get_string('questions', 'mod_harpiasurvey'),
             'questionbanklabel' => get_string('questionbank', 'mod_harpiasurvey'),
             'pageslist' => $pageslist,
@@ -179,10 +228,16 @@ class experiment_view implements renderable, templatable {
             'editing' => $this->editing,
             'formhtml' => $this->formhtml,
             'pageviewhtml' => $this->pageviewhtml,
+            'modelshtml' => $this->modelshtml,
+            'current_tab' => $this->tab,
+            'is_pages' => ($this->tab === 'pages'),
+            'is_models' => ($this->tab === 'models'),
             'backtocourseurl' => $backtocourseurl->out(false),
             'backtocourselabel' => get_string('backtocourse', 'mod_harpiasurvey'),
             'canmanage' => $this->canmanage,
             'wwwroot' => $CFG->wwwroot,
+            'navigation_mode' => $this->navigation_mode,
+            'is_only_forward' => ($this->navigation_mode === 'only_forward'),
         ];
     }
 }

@@ -279,7 +279,7 @@ function harpiasurvey_extend_settings_navigation($settingsnav, $harpiasurveynode
     $experiments = $DB->get_records('harpiasurvey_experiments', ['harpiasurveyid' => $harpiasurvey->id], 'id ASC', 'id', 0, 1);
     if (!empty($experiments)) {
         $experiment = reset($experiments);
-        $node = navigation_node::create(
+        $questionbanknode = navigation_node::create(
             get_string('questionbank', 'mod_harpiasurvey'),
             new moodle_url('/mod/harpiasurvey/question_bank.php', ['id' => $PAGE->cm->id, 'experiment' => $experiment->id]),
             navigation_node::TYPE_SETTING,
@@ -287,7 +287,27 @@ function harpiasurvey_extend_settings_navigation($settingsnav, $harpiasurveynode
             'mod_harpiasurvey_questionbank',
             new pix_icon('t/edit', '')
         );
-        $harpiasurveynode->add_node($node);
+        $harpiasurveynode->add_node($questionbanknode);
+        
+        // Add Models node next to Question Bank.
+        // Only mark as active if we're actually on the models tab.
+        $modelsurl = new moodle_url('/mod/harpiasurvey/view_experiment.php', ['id' => $PAGE->cm->id, 'experiment' => $experiment->id, 'tab' => 'models']);
+        $modelsnode = navigation_node::create(
+            get_string('models', 'mod_harpiasurvey'),
+            $modelsurl,
+            navigation_node::TYPE_SETTING,
+            null,
+            'mod_harpiasurvey_models',
+            new pix_icon('i/settings', '')
+        );
+        // Only make active if current URL matches exactly (including tab parameter).
+        $currenturl = $PAGE->url;
+        // Check if we're on the models tab by comparing the 'tab' parameter.
+        $currenttab = $currenturl->param('tab');
+        if ($currenttab === 'models') {
+            $modelsnode->make_active();
+        }
+        $harpiasurveynode->add_node($modelsnode);
     }
 }
 

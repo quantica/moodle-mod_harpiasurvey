@@ -99,6 +99,9 @@ if ($pageid) {
     $formdata->descriptionformat = $page->descriptionformat;
     $formdata->type = $page->type;
     $formdata->behavior = $page->behavior ?? 'continuous';
+    // Set min_turns and max_turns - use empty string instead of null for form compatibility.
+    $formdata->min_turns = isset($page->min_turns) && $page->min_turns !== null ? (int)$page->min_turns : '';
+    $formdata->max_turns = isset($page->max_turns) && $page->max_turns !== null ? (int)$page->max_turns : '';
     $formdata->available = $page->available;
 } else {
     $formdata->id = 0;
@@ -138,14 +141,42 @@ $PAGE->navbar->add($pagetitle);
 // Create form - pass the moodle_url object directly so it preserves parameters.
 $form = new \mod_harpiasurvey\forms\page($url, $formdata, $context);
 
+// Explicitly set data for all fields to ensure values are populated
+// even when fields are conditionally hidden. This must be called after form construction.
+// Convert formdata to array format that set_data expects.
+$formdataarray = (array)$formdata;
+// Ensure min_turns and max_turns are properly formatted as strings.
+if (isset($formdataarray['min_turns'])) {
+    $formdataarray['min_turns'] = $formdataarray['min_turns'] === '' || $formdataarray['min_turns'] === null ? '' : (string)(int)$formdataarray['min_turns'];
+}
+if (isset($formdataarray['max_turns'])) {
+    $formdataarray['max_turns'] = $formdataarray['max_turns'] === '' || $formdataarray['max_turns'] === null ? '' : (string)(int)$formdataarray['max_turns'];
+}
+$form->set_data($formdataarray);
+
 // Handle form submission.
 if ($form->is_cancelled()) {
     redirect(new moodle_url('/mod/harpiasurvey/view_experiment.php', ['id' => $cm->id, 'experiment' => $experiment->id]));
 } else if ($data = $form->get_data()) {
-    global $DB;
+    global $DB, $_POST;
 
     // Ensure we have a valid session key to prevent resubmission.
     require_sesskey();
+    
+    // HTML input fields added via addElement('html') are not automatically included in $data.
+    // We need to extract them from $_POST manually.
+    if (isset($_POST['question_show_only_turn']) && is_array($_POST['question_show_only_turn'])) {
+        $data->question_show_only_turn = $_POST['question_show_only_turn'];
+    }
+    if (isset($_POST['question_hide_on_turn']) && is_array($_POST['question_hide_on_turn'])) {
+        $data->question_hide_on_turn = $_POST['question_hide_on_turn'];
+    }
+    if (isset($_POST['question_show_only_model']) && is_array($_POST['question_show_only_model'])) {
+        $data->question_show_only_model = $_POST['question_show_only_model'];
+    }
+    if (isset($_POST['question_hide_on_model']) && is_array($_POST['question_hide_on_model'])) {
+        $data->question_hide_on_model = $_POST['question_hide_on_model'];
+    }
 
     // Verify we have the required course module ID.
     if (empty($data->cmid) || $data->cmid != $cm->id) {
@@ -158,6 +189,14 @@ if ($form->is_cancelled()) {
     $pagedata->title = $data->title;
     $pagedata->type = $data->type;
     $pagedata->behavior = isset($data->behavior) ? $data->behavior : 'continuous';
+    // Handle min_turns and max_turns (only for turns behavior).
+    if ($pagedata->behavior === 'turns') {
+        $pagedata->min_turns = !empty($data->min_turns) ? (int)$data->min_turns : null;
+        $pagedata->max_turns = !empty($data->max_turns) ? (int)$data->max_turns : null;
+    } else {
+        $pagedata->min_turns = null;
+        $pagedata->max_turns = null;
+    }
     $pagedata->available = isset($data->available) ? (int)$data->available : 1;
     $pagedata->timemodified = time();
 
@@ -180,17 +219,116 @@ if ($form->is_cancelled()) {
         $DB->update_record('harpiasurvey_pages', $pagedata);
         $pageid = $data->id;
         
-        // Handle question enabled states.
-        if (isset($data->question_enabled) && is_array($data->question_enabled)) {
-            // Get all page questions.
-            $pagequestions = $DB->get_records('harpiasurvey_page_questions', ['pageid' => $data->id]);
+        // Handle question enabled states and turn visibility fields.
+        // Get all page questions.
+        $pagequestions = $DB->get_records('harpiasurvey_page_questions', ['pageid' => $data->id]);
+        
+        foreach ($pagequestions as $pq) {
+            $updated = false;
             
-            foreach ($pagequestions as $pq) {
+            // Update enabled state (if checkbox data is provided).
+            if (isset($data->question_enabled) && is_array($data->question_enabled)) {
                 $enabled = isset($data->question_enabled[$pq->id]) ? 1 : 0;
                 if ($pq->enabled != $enabled) {
                     $pq->enabled = $enabled;
-                    $DB->update_record('harpiasurvey_page_questions', $pq);
+                    $updated = true;
                 }
+            }
+            
+            // Update show_only_turn field (always check, even if enabled checkbox wasn't touched).
+            // HTML fields need to be extracted from $_POST as they're not in $data automatically.
+            if (isset($data->question_show_only_turn) && is_array($data->question_show_only_turn)) {
+                // Check if this question's field was submitted (even if empty).
+                if (array_key_exists($pq->id, $data->question_show_only_turn)) {
+                    $showonlyturn = trim($data->question_show_only_turn[$pq->id]);
+                    $showonlyturnvalue = !empty($showonlyturn) && $showonlyturn !== '' ? (int)$showonlyturn : null;
+                    // Compare with current value (handle null/empty comparison).
+                    $currentvalue = isset($pq->show_only_turn) && $pq->show_only_turn !== null ? (int)$pq->show_only_turn : null;
+                    if ($currentvalue !== $showonlyturnvalue) {
+                        $pq->show_only_turn = $showonlyturnvalue;
+                        $updated = true;
+                    }
+                }
+            } else if (isset($_POST['question_show_only_turn']) && is_array($_POST['question_show_only_turn']) && array_key_exists($pq->id, $_POST['question_show_only_turn'])) {
+                // Fallback: extract directly from $_POST if not in $data.
+                $showonlyturn = trim($_POST['question_show_only_turn'][$pq->id]);
+                $showonlyturnvalue = !empty($showonlyturn) && $showonlyturn !== '' ? (int)$showonlyturn : null;
+                $currentvalue = isset($pq->show_only_turn) && $pq->show_only_turn !== null ? (int)$pq->show_only_turn : null;
+                if ($currentvalue !== $showonlyturnvalue) {
+                    $pq->show_only_turn = $showonlyturnvalue;
+                    $updated = true;
+                }
+            }
+            
+            // Update hide_on_turn field (always check, even if enabled checkbox wasn't touched).
+            // HTML fields need to be extracted from $_POST as they're not in $data automatically.
+            if (isset($data->question_hide_on_turn) && is_array($data->question_hide_on_turn)) {
+                // Check if this question's field was submitted (even if empty).
+                if (array_key_exists($pq->id, $data->question_hide_on_turn)) {
+                    $hideonturn = trim($data->question_hide_on_turn[$pq->id]);
+                    $hideonturnvalue = !empty($hideonturn) && $hideonturn !== '' ? (int)$hideonturn : null;
+                    // Compare with current value (handle null/empty comparison).
+                    $currentvalue = isset($pq->hide_on_turn) && $pq->hide_on_turn !== null ? (int)$pq->hide_on_turn : null;
+                    if ($currentvalue !== $hideonturnvalue) {
+                        $pq->hide_on_turn = $hideonturnvalue;
+                        $updated = true;
+                    }
+                }
+            } else if (isset($_POST['question_hide_on_turn']) && is_array($_POST['question_hide_on_turn']) && array_key_exists($pq->id, $_POST['question_hide_on_turn'])) {
+                // Fallback: extract directly from $_POST if not in $data.
+                $hideonturn = trim($_POST['question_hide_on_turn'][$pq->id]);
+                $hideonturnvalue = !empty($hideonturn) && $hideonturn !== '' ? (int)$hideonturn : null;
+                $currentvalue = isset($pq->hide_on_turn) && $pq->hide_on_turn !== null ? (int)$pq->hide_on_turn : null;
+                if ($currentvalue !== $hideonturnvalue) {
+                    $pq->hide_on_turn = $hideonturnvalue;
+                    $updated = true;
+                }
+            }
+            
+            // Update show_only_model field (always check, even if enabled checkbox wasn't touched).
+            if (isset($data->question_show_only_model) && is_array($data->question_show_only_model)) {
+                if (array_key_exists($pq->id, $data->question_show_only_model)) {
+                    $showonlymodel = trim($data->question_show_only_model[$pq->id]);
+                    $showonlymodelvalue = !empty($showonlymodel) && $showonlymodel !== '' ? (int)$showonlymodel : null;
+                    $currentvalue = isset($pq->show_only_model) && $pq->show_only_model !== null ? (int)$pq->show_only_model : null;
+                    if ($currentvalue !== $showonlymodelvalue) {
+                        $pq->show_only_model = $showonlymodelvalue;
+                        $updated = true;
+                    }
+                }
+            } else if (isset($_POST['question_show_only_model']) && is_array($_POST['question_show_only_model']) && array_key_exists($pq->id, $_POST['question_show_only_model'])) {
+                $showonlymodel = trim($_POST['question_show_only_model'][$pq->id]);
+                $showonlymodelvalue = !empty($showonlymodel) && $showonlymodel !== '' ? (int)$showonlymodel : null;
+                $currentvalue = isset($pq->show_only_model) && $pq->show_only_model !== null ? (int)$pq->show_only_model : null;
+                if ($currentvalue !== $showonlymodelvalue) {
+                    $pq->show_only_model = $showonlymodelvalue;
+                    $updated = true;
+                }
+            }
+            
+            // Update hide_on_model field (always check, even if enabled checkbox wasn't touched).
+            if (isset($data->question_hide_on_model) && is_array($data->question_hide_on_model)) {
+                if (array_key_exists($pq->id, $data->question_hide_on_model)) {
+                    $hideonmodel = trim($data->question_hide_on_model[$pq->id]);
+                    $hideonmodelvalue = !empty($hideonmodel) && $hideonmodel !== '' ? (int)$hideonmodel : null;
+                    $currentvalue = isset($pq->hide_on_model) && $pq->hide_on_model !== null ? (int)$pq->hide_on_model : null;
+                    if ($currentvalue !== $hideonmodelvalue) {
+                        $pq->hide_on_model = $hideonmodelvalue;
+                        $updated = true;
+                    }
+                }
+            } else if (isset($_POST['question_hide_on_model']) && is_array($_POST['question_hide_on_model']) && array_key_exists($pq->id, $_POST['question_hide_on_model'])) {
+                $hideonmodel = trim($_POST['question_hide_on_model'][$pq->id]);
+                $hideonmodelvalue = !empty($hideonmodel) && $hideonmodel !== '' ? (int)$hideonmodel : null;
+                $currentvalue = isset($pq->hide_on_model) && $pq->hide_on_model !== null ? (int)$pq->hide_on_model : null;
+                if ($currentvalue !== $hideonmodelvalue) {
+                    $pq->hide_on_model = $hideonmodelvalue;
+                    $updated = true;
+                }
+            }
+            
+            if ($updated) {
+                $DB->update_record('harpiasurvey_page_questions', $pq);
             }
         }
     } else {

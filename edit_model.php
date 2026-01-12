@@ -18,22 +18,33 @@ require(__DIR__.'/../../config.php');
 require_once(__DIR__.'/lib.php');
 
 // Course module id - can come from URL or form submission.
-$id = optional_param('id', 0, PARAM_INT);
-$modelid = optional_param('model', 0, PARAM_INT);
+// IMPORTANT: We MUST check 'cmid' and 'form_id' FIRST before 'id' because the form has a hidden 'id' field
+// for the model ID, which would conflict with the course module ID parameter.
+// When the form is cancelled, optional_param('id') might read the model ID (2) from POST instead of the course module ID (5).
 
-// If id is not in URL, try to get it from form data (for form submissions).
-if (empty($id)) {
-    if (isset($_POST['cmid'])) {
-        $id = (int)$_POST['cmid'];
-    } else if (isset($_POST['form_id'])) {
-        $id = (int)$_POST['form_id'];
-    }
+// First, try to get cmid from POST (for form submissions/cancellations).
+$id = 0;
+if (isset($_POST['cmid'])) {
+    $id = (int)$_POST['cmid'];
+} else if (isset($_POST['form_id'])) {
+    $id = (int)$_POST['form_id'];
 }
+
+// If we don't have it from POST, try GET (URL parameters).
+// IMPORTANT: Only use optional_param('id') if we haven't already gotten it from POST,
+// because POST['id'] might be the model ID, not the course module ID.
+if (empty($id)) {
+    $id = optional_param('id', 0, PARAM_INT);
+}
+
+$modelid = optional_param('model', 0, PARAM_INT);
+$experimentid = optional_param('experiment', 0, PARAM_INT);
 
 // Get course and course module.
 if (empty($id)) {
     throw new moodle_exception('missingparam', 'error', '', 'id');
 }
+
 list($course, $cm) = get_course_and_cm_from_cmid($id, 'harpiasurvey');
 $harpiasurvey = $DB->get_record('harpiasurvey', ['id' => $cm->instance], '*', MUST_EXIST);
 
@@ -46,6 +57,9 @@ $context = $cm->context;
 $formdata = new stdClass();
 $formdata->cmid = $cm->id;
 $formdata->harpiasurveyid = $harpiasurvey->id;
+if ($experimentid) {
+    $formdata->experimentid = $experimentid;
+}
 
 // If editing, load model data.
 if ($modelid) {
@@ -72,6 +86,9 @@ if ($modelid) {
 } else {
     $pagetitle = get_string('newmodel', 'mod_harpiasurvey');
 }
+if ($experimentid) {
+    $url->param('experiment', $experimentid);
+}
 
 $PAGE->set_url($url);
 $PAGE->set_title($pagetitle);
@@ -83,7 +100,32 @@ $form = new \mod_harpiasurvey\forms\model($url, $formdata, $context);
 
 // Handle form submission.
 if ($form->is_cancelled()) {
-    redirect(new moodle_url('/course/view.php', ['id' => $course->id]));
+    // Get submitted data even when cancelled to extract hidden fields.
+    $submitteddata = $form->get_submitted_data();
+    
+    // Get experiment ID from form data or URL (for cancellations).
+    if (!$experimentid) {
+        $experimentid = optional_param('experiment', 0, PARAM_INT);
+        if (!$experimentid && $submitteddata && isset($submitteddata->experiment)) {
+            $experimentid = (int)$submitteddata->experiment;
+        } else if (!$experimentid && isset($_POST['experiment'])) {
+            $experimentid = (int)$_POST['experiment'];
+        } else if (!$experimentid && $cancelexperimentid) {
+            $experimentid = $cancelexperimentid;
+        }
+    }
+    
+    // Use the cm->id we already have (from earlier in the script) for redirect.
+    // Redirect back to models view if experiment ID is provided, otherwise to course page.
+    if ($experimentid) {
+        redirect(new moodle_url('/mod/harpiasurvey/view_experiment.php', [
+            'id' => $cm->id,
+            'experiment' => $experimentid,
+            'tab' => 'models'
+        ]));
+    } else {
+        redirect(new moodle_url('/course/view.php', ['id' => $course->id]));
+    }
 } else if ($data = $form->get_data()) {
     global $DB;
 
@@ -120,11 +162,21 @@ if ($form->is_cancelled()) {
     // Purge course cache to refresh the table display.
     rebuild_course_cache($course->id, true);
 
-    // Redirect to course page with section anchor.
-    $section = $DB->get_field('course_modules', 'section', ['id' => $cm->id]);
-    $redirecturl = new moodle_url('/course/view.php', ['id' => $course->id]);
-    if ($section) {
-        $redirecturl->set_anchor('section-' . $section);
+    // Redirect back to models view if experiment ID is provided, otherwise to course page.
+    $experimentid = optional_param('experiment', 0, PARAM_INT);
+    if ($experimentid) {
+        $redirecturl = new moodle_url('/mod/harpiasurvey/view_experiment.php', [
+            'id' => $cm->id,
+            'experiment' => $experimentid,
+            'tab' => 'models'
+        ]);
+    } else {
+        // Redirect to course page with section anchor.
+        $section = $DB->get_field('course_modules', 'section', ['id' => $cm->id]);
+        $redirecturl = new moodle_url('/course/view.php', ['id' => $course->id]);
+        if ($section) {
+            $redirecturl->set_anchor('section-' . $section);
+        }
     }
     redirect($redirecturl, get_string('modelsaved', 'mod_harpiasurvey'), null, \core\output\notification::NOTIFY_SUCCESS);
 }

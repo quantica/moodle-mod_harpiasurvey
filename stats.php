@@ -66,47 +66,154 @@ if (empty($pageids)) {
 }
 
 // Get all responses for this experiment (all pages).
-$responses = [];
+// For edited answers, we'll get all responses and then filter to show only the latest per (user, page, question, turn).
+$allresponses = [];
 if (!empty($pageids)) {
     list($insql, $inparams) = $DB->get_in_or_equal($pageids, SQL_PARAMS_NAMED);
     $sql = "SELECT r.id, r.userid, r.questionid, r.pageid, r.response, r.timecreated, r.timemodified, r.turn_id,
-                   q.name AS questionname, q.type AS questiontype, q.settings AS questionsettings
+                   q.name AS questionname, q.type AS questiontype, q.settings AS questionsettings,
+                   p.type AS pagetype, p.behavior AS pagebehavior
               FROM {harpiasurvey_responses} r
               JOIN {harpiasurvey_questions} q ON q.id = r.questionid
               JOIN {harpiasurvey_page_questions} pq ON pq.pageid = r.pageid AND pq.questionid = r.questionid
+              JOIN {harpiasurvey_pages} p ON p.id = r.pageid
              WHERE r.pageid $insql
-          ORDER BY r.userid ASC, q.name ASC, r.timecreated ASC";
+          ORDER BY r.userid ASC, r.pageid ASC, q.name ASC, r.turn_id ASC, r.timemodified DESC, r.timecreated DESC";
 
-    $responses = $DB->get_records_sql($sql, $inparams);
+    $allresponses = $DB->get_records_sql($sql, $inparams);
 }
 
-// Get all conversations for this experiment (grouped by user and question).
+// Filter to show only the latest response per (user, page, question, turn).
+// If a question was answered multiple times, we'll keep only the one with the latest timemodified (or timecreated if timemodified is same).
+$responses = [];
+$responsekeys = []; // Track (userid, pageid, questionid, turn_id) to find latest
+foreach ($allresponses as $response) {
+    $key = $response->userid . '_' . $response->pageid . '_' . $response->questionid . '_' . ($response->turn_id ?? 'null');
+    if (!isset($responsekeys[$key])) {
+        // First time seeing this combination - this is the latest (since we ordered by timemodified DESC)
+        $responsekeys[$key] = true;
+        $response->is_latest = true;
+        $response->edit_count = 1; // Will be updated below
+        $responses[] = $response;
+    } else {
+        // This is an older version - count it but don't include in main list
+        // We'll track edit count separately
+    }
+}
+
+// Count total edits per (user, page, question, turn)
+$editcounts = [];
+foreach ($allresponses as $response) {
+    $key = $response->userid . '_' . $response->pageid . '_' . $response->questionid . '_' . ($response->turn_id ?? 'null');
+    if (!isset($editcounts[$key])) {
+        $editcounts[$key] = 0;
+    }
+    $editcounts[$key]++;
+}
+
+// Add edit count to responses
+foreach ($responses as $response) {
+    $key = $response->userid . '_' . $response->pageid . '_' . $response->questionid . '_' . ($response->turn_id ?? 'null');
+    $response->edit_count = $editcounts[$key] ?? 1;
+    $response->was_edited = ($response->edit_count > 1);
+}
+
+// Get all conversations for this experiment.
+// For page-level conversations (questionid is NULL), group by (userid, pageid).
+// For question-level conversations, group by (userid, questionid).
 $conversations = [];
 if (!empty($pageids)) {
     list($convinsql, $convparams) = $DB->get_in_or_equal($pageids, SQL_PARAMS_NAMED);
-    $convsql = "SELECT c.id, c.userid, c.questionid, c.role, c.content, c.timecreated, c.parentid,
-                       q.name AS questionname, q.type AS questiontype
+    $convsql = "SELECT c.id, c.userid, c.questionid, c.pageid, c.modelid, c.role, c.content, 
+                       c.timecreated, c.parentid, c.turn_id,
+                       q.name AS questionname, q.type AS questiontype,
+                       p.type AS pagetype, p.behavior AS pagebehavior,
+                       m.name AS modelname
                   FROM {harpiasurvey_conversations} c
-                  JOIN {harpiasurvey_questions} q ON q.id = c.questionid
+             LEFT JOIN {harpiasurvey_questions} q ON q.id = c.questionid
+                  JOIN {harpiasurvey_pages} p ON p.id = c.pageid
+             LEFT JOIN {harpiasurvey_models} m ON m.id = c.modelid
                  WHERE c.pageid $convinsql
-              ORDER BY c.userid ASC, c.questionid ASC, c.timecreated ASC";
+              ORDER BY c.userid ASC, c.pageid ASC, c.questionid ASC, c.timecreated ASC";
     
     $allmessages = $DB->get_records_sql($convsql, $convparams);
     
-    // Group messages by (userid, questionid) - each group is one conversation
+    // Build parent map once for all messages
+    $parentmap = [];
+    foreach ($allmessages as $m) {
+        if ($m->parentid) {
+            $parentmap[$m->id] = $m->parentid;
+        }
+    }
+    
+    // Function to find root message ID
+    $findroot = function($msgid) use ($parentmap) {
+        $currentid = $msgid;
+        $rootid = $msgid;
+        while (isset($parentmap[$currentid])) {
+            $currentid = $parentmap[$currentid];
+            $rootid = $currentid;
+        }
+        return $rootid;
+    };
+    
+    // Group messages by conversation root
+    // For page-level conversations (questionid is NULL), group by (userid, pageid, root message)
+    // For question-level conversations, group by (userid, questionid)
     foreach ($allmessages as $msg) {
-        $key = $msg->userid . '_' . $msg->questionid;
+        // Find root message for this conversation
+        $rootid = $findroot($msg->id);
+        
+        // Use root message to determine conversation key
+        if ($msg->questionid) {
+            // Question-level conversation
+            $key = $msg->userid . '_q_' . $msg->questionid;
+        } else {
+            // Page-level conversation - use root message ID to group
+            $key = $msg->userid . '_p_' . $msg->pageid . '_root_' . $rootid;
+        }
+        
         if (!isset($conversations[$key])) {
+            // Determine conversation type
+            $conversationtype = 'continuous';
+            $ismultimodel = false;
+            
+            if ($msg->pagebehavior === 'turns') {
+                $conversationtype = 'turns';
+            } else if ($msg->pagebehavior === 'continuous') {
+                $conversationtype = 'continuous';
+            }
+            
+            // Check if multi-model (count distinct models in this conversation)
+            // We'll do this after grouping all messages, so for now just initialize
+            $modelsinconv = [];
+            
             $conversations[$key] = [
                 'userid' => $msg->userid,
                 'questionid' => $msg->questionid,
-                'questionname' => $msg->questionname,
-                'questiontype' => $msg->questiontype,
+                'pageid' => $msg->pageid,
+                'questionname' => $msg->questionname ?? get_string('pageconversation', 'mod_harpiasurvey'),
+                'questiontype' => $msg->questiontype ?? 'aichat',
+                'pagetype' => $msg->pagetype,
+                'pagebehavior' => $msg->pagebehavior,
+                'conversationtype' => $conversationtype,
+                'ismultimodel' => false, // Will be determined after grouping
+                'models' => [],
                 'messages' => []
             ];
         }
         $conversations[$key]['messages'][] = $msg;
     }
+}
+
+// Now that all messages are grouped, determine multi-model status for each conversation
+foreach ($conversations as $key => $conv) {
+    $modelsinconv = [];
+    foreach ($conv['messages'] as $msg) {
+        $modelsinconv[$msg->modelid] = true;
+    }
+    $conversations[$key]['ismultimodel'] = (count($modelsinconv) > 1);
+    $conversations[$key]['models'] = array_keys($modelsinconv);
 }
 
 // Get all unique user IDs from both responses and conversations, then fetch full user records.
@@ -125,6 +232,25 @@ if (!empty($userids)) {
     $users = $DB->get_records_sql("SELECT * FROM {user} WHERE id $userinsql", $userinparams);
 } else {
     $users = [];
+}
+
+// Get all model records for displaying model names
+$modelids = [];
+if (!empty($conversations)) {
+    foreach ($conversations as $conv) {
+        if (!empty($conv['models'])) {
+            $modelids = array_merge($modelids, $conv['models']);
+        }
+    }
+}
+$modelids = array_unique($modelids);
+$models = [];
+if (!empty($modelids)) {
+    list($modelinsql, $modelinparams) = $DB->get_in_or_equal($modelids, SQL_PARAMS_NAMED);
+    $modelrecords = $DB->get_records_sql("SELECT * FROM {harpiasurvey_models} WHERE id $modelinsql", $modelinparams);
+    foreach ($modelrecords as $model) {
+        $models[$model->id] = $model;
+    }
 }
 
 // Get all question options for questions that have options.
@@ -170,6 +296,8 @@ foreach ($conversations as $conv) {
         $roleobj = new \stdClass();
         $roleobj->{$msg->role} = true;
         
+        $modelname = isset($models[$msg->modelid]) ? $models[$msg->modelid]->name : 'Model ' . $msg->modelid;
+        
         $formattedmessages[] = [
             'id' => $msg->id,
             'role' => $roleobj,
@@ -181,7 +309,10 @@ foreach ($conversations as $conv) {
             'rawcontent' => $msg->content, // For preview and CSV
             'timecreated' => userdate($msg->timecreated, get_string('strftimedatetimeshort', 'langconfig')),
             'timestamp' => $msg->timecreated,
-            'parentid' => $msg->parentid ?? '' // Include parent_id for CSV export
+            'parentid' => $msg->parentid ?? '', // Include parent_id for CSV export
+            'modelid' => $msg->modelid,
+            'modelname' => $modelname,
+            'turn_id' => $msg->turn_id ?? null
         ];
     }
     
@@ -202,12 +333,45 @@ foreach ($conversations as $conv) {
     // Get localized question type string
     $questiontypestring = get_string('type' . $conv['questiontype'], 'mod_harpiasurvey');
     
+    // Build conversation type label
+    $conversationtypelabel = '';
+    if ($conv['conversationtype'] === 'turns') {
+        $conversationtypelabel = get_string('turns', 'mod_harpiasurvey');
+        if ($conv['ismultimodel']) {
+            $conversationtypelabel .= ' (' . get_string('multimodel', 'mod_harpiasurvey') . ')';
+        }
+    } else if ($conv['conversationtype'] === 'continuous') {
+        $conversationtypelabel = get_string('continuous', 'mod_harpiasurvey');
+        if ($conv['ismultimodel']) {
+            $conversationtypelabel .= ' (' . get_string('multimodel', 'mod_harpiasurvey') . ')';
+        }
+    }
+    
+    // Build model names list
+    $modelnames = [];
+    foreach ($conv['models'] as $modelid) {
+        if (isset($models[$modelid])) {
+            $modelnames[] = $models[$modelid]->name;
+        } else {
+            $modelnames[] = 'Model ' . $modelid;
+        }
+    }
+    
     $conversationslist[] = [
-        'id' => 'conv_' . $conv['userid'] . '_' . $conv['questionid'],
+        'id' => 'conv_' . $conv['userid'] . '_' . ($conv['questionid'] ?? 'page_' . $conv['pageid']),
         'userid' => $conv['userid'], // Keep userid for CSV export
         'user' => $fullname,
         'question' => format_string($conv['questionname']),
         'questiontype' => $questiontypestring,
+        'pageid' => $conv['pageid'],
+        'pagetype' => $conv['pagetype'],
+        'pagebehavior' => $conv['pagebehavior'],
+        'conversationtype' => $conv['conversationtype'],
+        'conversationtypelabel' => $conversationtypelabel,
+        'ismultimodel' => $conv['ismultimodel'],
+        'models' => $conv['models'],
+        'modelnames' => $modelnames,
+        'modelnamesstr' => implode(', ', $modelnames),
         'messagecount' => $messagecount,
         'preview' => htmlspecialchars($preview, ENT_QUOTES, 'UTF-8'),
         'messages' => $formattedmessages,
@@ -316,15 +480,23 @@ foreach ($responses as $response) {
     // Note: evaluates_conversation_id has been removed.
     // For aichat pages, all questions evaluate the page's chat conversation.
     // We can identify this by checking if the page type is 'aichat'.
-    $page = $DB->get_record('harpiasurvey_pages', ['id' => $response->pageid], 'type, behavior');
-    $is_aichat_page = ($page && $page->type === 'aichat');
+    $is_aichat_page = ($response->pagetype === 'aichat');
     $evaluatesconversation = $is_aichat_page ? get_string('pagechatevaluation', 'mod_harpiasurvey') : '';
+    
+    // Format timestamps
+    $timecreatedstr = userdate($response->timecreated, get_string('strftimedatetimeshort', 'langconfig'));
+    $timemodifiedstr = ($response->timemodified && $response->timemodified > $response->timecreated) 
+        ? userdate($response->timemodified, get_string('strftimedatetimeshort', 'langconfig'))
+        : null;
     
     $responseslist[] = [
         'id' => $response->id,
         'user' => $fullname,
         'question' => format_string($response->questionname),
         'questiontype' => $questiontypestring,
+        'pageid' => $response->pageid,
+        'pagetype' => $response->pagetype,
+        'pagebehavior' => $response->pagebehavior ?? null,
         'evaluatesconversation' => $evaluatesconversation,
         'turn_id' => $response->turn_id ?? null, // Include turn_id for turn-based evaluations.
         'answeritems' => $answeritems,
@@ -332,7 +504,11 @@ foreach ($responses as $response) {
         'answer' => htmlspecialchars($fulltext, ENT_QUOTES, 'UTF-8'), // Escape for data attribute.
         'displayanswer' => htmlspecialchars($displaytext, ENT_QUOTES, 'UTF-8'), // Escape for display.
         'islong' => $islong,
-        'timecreated' => userdate($response->timecreated, get_string('strftimedatetimeshort', 'langconfig'))
+        'timecreated' => $timecreatedstr,
+        'timemodified' => $timemodifiedstr,
+        'was_edited' => $response->was_edited ?? false,
+        'edit_count' => $response->edit_count ?? 1,
+        'is_latest' => $response->is_latest ?? true
     ];
 }
 
@@ -342,10 +518,20 @@ foreach ($conversationslist as $conv) {
     $responseslist[] = [
         'id' => $conv['id'],
         'user' => $conv['user'],
+        'userid' => $conv['userid'],
         'question' => $conv['question'],
         'questiontype' => $conv['questiontype'],
+        'pageid' => $conv['pageid'],
+        'pagetype' => $conv['pagetype'],
+        'pagebehavior' => $conv['pagebehavior'],
+        'conversationtype' => $conv['conversationtype'],
+        'conversationtypelabel' => $conv['conversationtypelabel'],
+        'ismultimodel' => $conv['ismultimodel'],
+        'models' => $conv['models'],
+        'modelnames' => $conv['modelnames'],
+        'modelnamesstr' => $conv['modelnamesstr'],
         'evaluatesconversation' => '', // Conversations don't evaluate other conversations
-        'turn_id' => null, // Conversations don't have turn_id
+        'turn_id' => null, // Conversations don't have turn_id at top level (messages have turn_id)
         'isconversation' => true,
         'messagecount' => $conv['messagecount'],
         'preview' => $conv['preview'],
@@ -353,6 +539,9 @@ foreach ($conversationslist as $conv) {
         'messagesjson' => $conv['messagesjson'],
         'timecreated' => $conv['timecreated'],
         'timelast' => $conv['timelast'],
+        'was_edited' => false, // Conversations don't have edit tracking
+        'edit_count' => 1,
+        'is_latest' => true,
         // Empty fields for compatibility
         'answeritems' => [],
         'answeritemsjson' => '[]',
@@ -388,10 +577,16 @@ if ($download === 'csv') {
         get_string('user'),
         get_string('question', 'mod_harpiasurvey'),
         get_string('type', 'mod_harpiasurvey'),
+        get_string('conversationtype', 'mod_harpiasurvey'),
+        get_string('model', 'mod_harpiasurvey'),
         get_string('evaluatesconversation', 'mod_harpiasurvey'),
+        get_string('turnid', 'mod_harpiasurvey'),
         get_string('answer', 'mod_harpiasurvey'),
         get_string('role', 'mod_harpiasurvey'),
         get_string('time', 'mod_harpiasurvey'),
+        get_string('timemodified', 'mod_harpiasurvey'),
+        get_string('edited', 'mod_harpiasurvey'),
+        get_string('editcount', 'mod_harpiasurvey'),
         get_string('messageid', 'mod_harpiasurvey'),
         get_string('parentid', 'mod_harpiasurvey')
     ];
@@ -421,26 +616,38 @@ if ($download === 'csv') {
                     $username,
                     $item['question'],
                     $item['questiontype'],
+                    $item['conversationtypelabel'] ?? '', // Conversation type (turns/continuous, multi-model)
+                    $msg['modelname'] ?? ($msg['modelid'] ?? ''), // Model name
                     '', // No evaluates conversation for conversation entries themselves
+                    $msg['turn_id'] ?? '', // Turn ID for this message
                     $msg['rawcontent'] ?? $msg['content'] ?? '', // Use raw content for CSV
                     $rolestr,
                     userdate($msg['timestamp'], get_string('strftimedatetimeshort', 'langconfig')),
+                    '', // No timemodified for messages
+                    '', // No edited flag for messages
+                    '', // No edit count for messages
                     $msg['id'] ?? '', // Message ID only for conversations
                     $msg['parentid'] ?? '' // Parent ID only for conversations
                 ];
                 $csvexport->add_data($row);
             }
         } else {
-            // For regular responses, export as a single row (no Message ID or Parent ID)
+            // For regular responses, export as a single row
             $fulltext = implode(', ', array_column($item['answeritems'], 'text'));
             $row = [
                 $item['user'],
                 $item['question'],
                 $item['questiontype'],
+                '', // No conversation type for regular responses
+                '', // No model for regular responses
                 $item['evaluatesconversation'] ?? '', // Evaluates conversation name
+                $item['turn_id'] ?? '', // Turn ID if applicable
                 $fulltext,
                 '', // No role for regular responses
                 $item['timecreated'],
+                $item['timemodified'] ?? '', // Time modified if edited
+                ($item['was_edited'] ?? false) ? get_string('yes') : get_string('no'), // Edited flag
+                ($item['edit_count'] ?? 1) > 1 ? ($item['edit_count'] ?? 1) : '', // Edit count if > 1
                 '', // No Message ID for regular responses (to avoid ID conflicts)
                 '' // No Parent ID for regular responses
             ];

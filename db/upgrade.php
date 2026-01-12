@@ -350,6 +350,122 @@ function xmldb_harpiasurvey_upgrade($oldversion) {
         upgrade_mod_savepoint(true, 202501280018, 'harpiasurvey');
     }
 
+    if ($oldversion < 202501280019) {
+        // Create harpiasurvey_turn_branches table for conversation tree structure.
+        $table = new xmldb_table('harpiasurvey_turn_branches');
+        if (!$dbman->table_exists($table)) {
+            $installfile = $CFG->dirroot . '/mod/harpiasurvey/db/install.xml';
+            $dbman->install_one_table_from_xmldb_file($installfile, 'harpiasurvey_turn_branches');
+        }
+
+        upgrade_mod_savepoint(true, 202501280019, 'harpiasurvey');
+    }
+
+    if ($oldversion < 202501280020) {
+        // Add navigation_mode field to harpiasurvey_experiments table.
+        $table = new xmldb_table('harpiasurvey_experiments');
+        
+        // Add 'navigation_mode' field (free_navigation, only_forward).
+        $field = new xmldb_field('navigation_mode', XMLDB_TYPE_CHAR, '50', null, null, null, 'free_navigation', 'status');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        
+        upgrade_mod_savepoint(true, 202501280020, 'harpiasurvey');
+    }
+
+    if ($oldversion < 202501280022) {
+        // Create harpiasurvey_subpages table for subpages within aichat pages with turns mode.
+        $table = new xmldb_table('harpiasurvey_subpages');
+        if (!$dbman->table_exists($table)) {
+            $installfile = $CFG->dirroot . '/mod/harpiasurvey/db/install.xml';
+            $dbman->install_one_table_from_xmldb_file($installfile, 'harpiasurvey_subpages');
+        }
+
+        upgrade_mod_savepoint(true, 202501280022, 'harpiasurvey');
+    }
+
+    if ($oldversion < 202501280023) {
+        // Create harpiasurvey_subpage_questions table for subpage questions.
+        $table = new xmldb_table('harpiasurvey_subpage_questions');
+        if (!$dbman->table_exists($table)) {
+            $installfile = $CFG->dirroot . '/mod/harpiasurvey/db/install.xml';
+            $dbman->install_one_table_from_xmldb_file($installfile, 'harpiasurvey_subpage_questions');
+        }
+
+        upgrade_mod_savepoint(true, 202501280023, 'harpiasurvey');
+    }
+
+    if ($oldversion < 202501280024) {
+        // Add turn visibility fields to harpiasurvey_subpage_questions table.
+        $table = new xmldb_table('harpiasurvey_subpage_questions');
+        
+        $field = new xmldb_field('turn_visibility_type', XMLDB_TYPE_CHAR, '50', null, XMLDB_NOTNULL, null, 'all_turns', 'enabled');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        
+        $field = new xmldb_field('turn_number', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'turn_visibility_type');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_mod_savepoint(true, 202501280024, 'harpiasurvey');
+    }
+
+    if ($oldversion < 202501280025) {
+        // Add min_turns and max_turns fields to harpiasurvey_pages table for turn limits.
+        $table = new xmldb_table('harpiasurvey_pages');
+        
+        // Add 'min_turns' field.
+        $field = new xmldb_field('min_turns', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'behavior');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        
+        // Add 'max_turns' field.
+        $field = new xmldb_field('max_turns', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'min_turns');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        
+        upgrade_mod_savepoint(true, 202501280025, 'harpiasurvey');
+    }
+
+    if ($oldversion < 202501280026) {
+        // Add show_only_turn and hide_on_turn fields to harpiasurvey_page_questions table.
+        $table = new xmldb_table('harpiasurvey_page_questions');
+
+        $field = new xmldb_field('show_only_turn', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'min_turn');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $field = new xmldb_field('hide_on_turn', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'show_only_turn');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_mod_savepoint(true, 202501280026, 'harpiasurvey');
+    }
+
+    if ($oldversion < 202501280027) {
+        // Add show_only_model and hide_on_model fields to harpiasurvey_page_questions table.
+        $table = new xmldb_table('harpiasurvey_page_questions');
+
+        $field = new xmldb_field('show_only_model', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'hide_on_turn');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $field = new xmldb_field('hide_on_model', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'show_only_model');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_mod_savepoint(true, 202501280027, 'harpiasurvey');
+    }
+
     return true;
 }
 

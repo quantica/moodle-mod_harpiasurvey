@@ -1,0 +1,58 @@
+{{!
+    This file is part of Moodle - https://moodle.org/
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+}}
+{{!
+    @template mod_harpiasurvey/conversation_tree
+
+    Template for conversation tree sidebar showing all conversation branches.
+
+    Context variables required for this template:
+    * pageid - Page ID
+    * cmid - Course module ID
+
+    Example context (json):
+    {
+        "pageid": 1,
+        "cmid": 1
+    }
+}}
+<div class="conversation-tree-sidebar" id="conversation-tree-sidebar-{{pageid}}">
+    <div class="card border-0 shadow-sm h-100 d-flex flex-column">
+        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center py-2">
+            <h6 class="mb-0 font-weight-bold">
+                <i class="fa fa-comments" aria-hidden="true"></i> {{#str}}conversations, mod_harpiasurvey{{/str}}
+            </h6>
+            <button type="button" class="btn btn-sm btn-light close-tree-btn" data-pageid="{{pageid}}" aria-label="Close" title="{{#str}}close, core{{/str}}">
+                <i class="fa fa-times" aria-hidden="true"></i>
+            </button>
+        </div>
+        <div class="card-body p-3 flex-grow-1" style="overflow-y: auto; min-height: 0;">
+            <div class="conversation-tree" id="conversation-tree-{{pageid}}">
+                <div class="text-center py-4">
+                    <div class="spinner-border spinner-border-sm text-primary" role="status">
+                        <span class="sr-only">{{#str}}loading, moodle{{/str}}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="card-footer bg-light border-top py-2">
+            <button type="button" class="btn btn-sm btn-success btn-block create-root-btn font-weight-bold mb-2" data-pageid="{{pageid}}" data-cmid="{{cmid}}">
+                <i class="fa fa-plus-circle" aria-hidden="true"></i> {{#str}}newconversation, mod_harpiasurvey{{/str}}
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-primary btn-block export-conversation-btn" data-pageid="{{pageid}}" data-cmid="{{cmid}}" title="{{#str}}exportconversation, mod_harpiasurvey{{/str}}">
+                <i class="fa fa-download" aria-hidden="true"></i> {{#str}}exportconversation, mod_harpiasurvey{{/str}}
+            </button>
+        </div>
+    </div>
+</div>
+

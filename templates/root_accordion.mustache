@@ -1,0 +1,42 @@
+{{!
+    This file is part of Moodle - https://moodle.org/
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+}}
+{{!
+    @template mod_harpiasurvey/root_accordion
+
+    Template for root turn accordion item with branches inside.
+
+    Context variables:
+    * root_turn_id - The root turn ID
+    * is_expanded - Whether this root is expanded
+    * branches - Array of branch objects with turn_id, branch_label, messages
+}}
+<div class="root-accordion-item mb-3" data-root-turn="{{root_turn_id}}">
+    <div class="root-accordion-header card-header bg-light" style="cursor: pointer;" data-toggle="collapse" data-target="#root-{{root_turn_id}}-content">
+        <div class="d-flex justify-content-between align-items-center">
+            <div class="d-flex align-items-center">
+                <i class="fa fa-chevron-{{#is_expanded}}right{{/is_expanded}}{{^is_expanded}}down{{/is_expanded}} mr-2"></i>
+                <strong>{{#str}}turn, mod_harpiasurvey{{/str}} {{root_turn_id}}</strong>
+            </div>
+            <span class="badge badge-info">{{branches.length}} {{#branches.length}}{{#str}}branch, mod_harpiasurvey{{/str}}{{/branches.length}}{{^branches.length}}ramos{{/branches.length}}</span>
+        </div>
+    </div>
+    <div class="collapse {{#is_expanded}}show{{/is_expanded}}" id="root-{{root_turn_id}}-content">
+        <div class="card-body p-0">
+            {{#branches}}
+                {{> mod_harpiasurvey/branch_accordion }}
+            {{/branches}}
+        </div>
+    </div>
+</div>
+

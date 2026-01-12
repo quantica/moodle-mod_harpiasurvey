@@ -53,6 +53,16 @@ export const init = (cmid, pageid) => {
         showModal(triggerCmid || cmid, triggerPageid || pageid);
     });
 
+    // Handle subpage question bank modal triggers.
+    $("body").on("click", ".subpage-question-bank-modal-trigger", function(e) {
+        e.preventDefault();
+        const button = $(this);
+        const triggerCmid = parseInt(button.data("cmid"), 10);
+        const triggerPageid = parseInt(button.data("pageid"), 10);
+        const triggerSubpageid = parseInt(button.data("subpageid"), 10);
+        showSubpageModal(triggerCmid || cmid, triggerPageid || pageid, triggerSubpageid);
+    });
+
     initialized = true;
 };
 
@@ -177,6 +187,154 @@ const addQuestionToPage = (cmid, pageid, questionId) => {
         action: 'add_question_to_page',
         cmid: cmid,
         pageid: pageid,
+        questionid: questionId,
+        sesskey: sesskey
+    });
+
+    fetch(ajaxUrl + '?' + params.toString())
+        .then((response) => response.json())
+        .then((response) => {
+            if (response.success) {
+                Notification.addNotification({
+                    message: response.message,
+                    type: 'success'
+                });
+                // Reload the page to show the new question.
+                window.location.reload();
+            } else {
+                Notification.addNotification({
+                    message: response.message || 'Error adding question',
+                    type: 'error'
+                });
+            }
+        })
+        .catch(Notification.exception);
+};
+
+let subpageModalInstance = null;
+
+/**
+ * Show the question bank modal for subpages.
+ *
+ * @param {number} cmid Course module ID
+ * @param {number} pageid Page ID
+ * @param {number} subpageid Subpage ID
+ * @returns {Promise}
+ */
+export const showSubpageModal = (cmid, pageid, subpageid) => {
+    if (subpageModalInstance) {
+        subpageModalInstance.show();
+        loadSubpageQuestions(cmid, pageid, subpageid);
+        return Promise.resolve();
+    }
+
+    return getString('addquestiontosubpage', 'mod_harpiasurvey').then((title) => {
+        return Modal.create({
+            title: title,
+            body: Templates.render('mod_harpiasurvey/question_bank_modal_body', {
+                loading: true
+            }),
+            large: true,
+            show: true,
+        });
+    }).then((modal) => {
+        subpageModalInstance = modal;
+
+        // Load questions when modal is shown.
+        modal.getRoot().on(ModalEvents.shown, () => {
+            loadSubpageQuestions(cmid, pageid, subpageid);
+        });
+
+        // Handle add question button clicks.
+        modal.getRoot().on('click', '[data-action="add-question-to-subpage"]', (e) => {
+            e.preventDefault();
+            const questionId = parseInt(e.currentTarget.dataset.questionid, 10);
+            addQuestionToSubpage(cmid, pageid, subpageid, questionId);
+        });
+
+        // Clean up when modal is hidden.
+        modal.getRoot().on(ModalEvents.hidden, () => {
+            modal.setBody(Templates.render('mod_harpiasurvey/question_bank_modal_body', {
+                loading: true
+            }));
+        });
+
+        return modal;
+    }).catch(Notification.exception);
+};
+
+/**
+ * Load available questions for subpage via AJAX.
+ *
+ * @param {number} cmid Course module ID
+ * @param {number} pageid Page ID
+ * @param {number} subpageid Subpage ID
+ */
+const loadSubpageQuestions = (cmid, pageid, subpageid) => {
+    const bodyPromise = subpageModalInstance.getBodyPromise();
+    const wwwroot = Config.wwwroot;
+    const ajaxUrl = wwwroot + '/mod/harpiasurvey/ajax.php';
+    const params = new URLSearchParams({
+        action: 'get_available_subpage_questions',
+        cmid: cmid,
+        pageid: pageid,
+        subpageid: subpageid
+    });
+
+    fetch(ajaxUrl + '?' + params.toString())
+        .then((response) => response.json())
+        .then((response) => {
+            if (response.success) {
+                return Templates.render('mod_harpiasurvey/question_bank_modal_body', {
+                    questions: response.questions,
+                    has_questions: response.questions.length > 0,
+                    is_aichat_page: false,
+                    cmid: cmid,
+                    pageid: pageid,
+                    subpageid: subpageid,
+                    is_subpage: true
+                });
+            } else {
+                return Templates.render('mod_harpiasurvey/question_bank_modal_body', {
+                    error: response.message || 'Error loading questions',
+                    has_questions: false
+                });
+            }
+        })
+        .then((html) => {
+            return bodyPromise.then(() => {
+                subpageModalInstance.setBody(html);
+            });
+        })
+        .catch((error) => {
+            return bodyPromise.then(() => {
+                subpageModalInstance.setBody(Templates.render('mod_harpiasurvey/question_bank_modal_body', {
+                    error: 'Error loading questions',
+                    has_questions: false
+                }));
+            });
+            Notification.exception(error);
+        });
+};
+
+/**
+ * Add a question to the subpage via AJAX.
+ *
+ * @param {number} cmid Course module ID
+ * @param {number} pageid Page ID
+ * @param {number} subpageid Subpage ID
+ * @param {number} questionId Question ID
+ */
+const addQuestionToSubpage = (cmid, pageid, subpageid, questionId) => {
+    const wwwroot = Config.wwwroot;
+    const sesskey = Config.sesskey || M.cfg.sesskey;
+    const ajaxUrl = wwwroot + '/mod/harpiasurvey/ajax.php';
+
+    const params = new URLSearchParams({
+        action: 'add_question_to_subpage',
+        cmid: cmid,
+        pageid: pageid,
+        subpageid: subpageid,
         questionid: questionId,
         sesskey: sesskey
     });

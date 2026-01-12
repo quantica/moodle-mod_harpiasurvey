@@ -21,28 +21,132 @@ require_once(__DIR__.'/lib.php');
 
 $action = required_param('action', PARAM_ALPHANUMEXT);
 $cmid = required_param('cmid', PARAM_INT);
-$pageid = required_param('pageid', PARAM_INT);
+
+// For subpage actions, pageid might come as a parameter, but it's required for most actions.
+// We'll handle it conditionally below.
+// For most actions, pageid is required. For subpage actions, we'll get it from the subpage.
+if (!in_array($action, ['get_available_subpage_questions', 'add_question_to_subpage'])) {
+    $pageid = required_param('pageid', PARAM_INT);
+} else {
+    $pageid = optional_param('pageid', 0, PARAM_INT);
+}
 
 list($course, $cm) = get_course_and_cm_from_cmid($cmid, 'harpiasurvey');
 require_login($course, true, $cm);
 
 // Different capabilities for different actions.
-if (in_array($action, ['add_question_to_page', 'get_available_questions'])) {
+if (in_array($action, ['add_question_to_page', 'get_available_questions', 'add_question_to_subpage', 'get_available_subpage_questions'])) {
     require_capability('mod/harpiasurvey:manageexperiments', $cm->context);
-} else if (in_array($action, ['save_response', 'send_ai_message', 'get_conversation_history', 'get_turn_responses'])) {
+} else if (in_array($action, ['save_response', 'send_ai_message', 'get_conversation_history', 'get_turn_responses', 
+                              'get_conversation_tree', 'create_branch', 'create_root', 'export_conversation'])) {
     // Students can save their own responses and interact with AI.
     require_capability('mod/harpiasurvey:view', $cm->context);
 }
 
 // Verify sesskey for write operations.
-if (in_array($action, ['add_question_to_page', 'save_response', 'send_ai_message'])) {
+if (in_array($action, ['add_question_to_page', 'add_question_to_subpage', 'save_response', 'send_ai_message', 'create_branch', 'create_root', 'export_conversation'])) {
     require_sesskey();
 }
 
 $harpiasurvey = $DB->get_record('harpiasurvey', ['id' => $cm->instance], '*', MUST_EXIST);
-$page = $DB->get_record('harpiasurvey_pages', ['id' => $pageid], '*', MUST_EXIST);
+
+// For most actions, pageid is required and we need to load the page.
+if (!in_array($action, ['get_available_subpage_questions', 'add_question_to_subpage'])) {
+    $page = $DB->get_record('harpiasurvey_pages', ['id' => $pageid], '*', MUST_EXIST);
+} else {
+    // For subpage actions, pageid will be required in the case statement.
+    // We'll validate it there.
+}
 
 header('Content-Type: application/json');
+
+/**
+ * Get conversation history for a turn, considering branch tree structure.
+ * 
+ * For a root turn: returns only messages from that turn.
+ * For a branch turn: returns messages from root up to parent_turn_id (inclusive) + messages from the branch.
+ * 
+ * @param object $DB Database object
+ * @param int $pageid Page ID
+ * @param int $userid User ID
+ * @param int $turn_id Turn ID to get history for
+ * @return array Array of history messages with 'role' and 'content'
+ */
+function get_turn_history($DB, $pageid, $userid, $turn_id) {
+    // Check if this turn is a branch (has a parent).
+    $branch = $DB->get_record('harpiasurvey_turn_branches', [
+        'pageid' => $pageid,
+        'userid' => $userid,
+        'child_turn_id' => $turn_id
+    ]);
+    
+    $turn_ids_to_include = [];
+    
+    if ($branch) {
+        // This is a branch. We need to get all turns from root to parent (inclusive) + this branch.
+        $parent_turn_id = $branch->parent_turn_id;
+        
+        // Find the root turn by traversing up the tree.
+        $current_parent = $parent_turn_id;
+        $path_to_root = [$parent_turn_id];
+        
+        // Traverse up to find the root.
+        while ($current_parent) {
+            $parent_branch = $DB->get_record('harpiasurvey_turn_branches', [
+                'pageid' => $pageid,
+                'userid' => $userid,
+                'child_turn_id' => $current_parent
+            ]);
+            
+            if ($parent_branch) {
+                $current_parent = $parent_branch->parent_turn_id;
+                if ($current_parent) {
+                    array_unshift($path_to_root, $current_parent);
+                }
+            } else {
+                // This is the root.
+                break;
+            }
+        }
+        
+        // Include all turns from root to parent (inclusive) + the branch turn.
+        $turn_ids_to_include = $path_to_root;
+        $turn_ids_to_include[] = $turn_id;
+    } else {
+        // This is a root turn. Only include messages from this turn.
+        $turn_ids_to_include = [$turn_id];
+    }
+    
+    // Get all messages from the included turns, ordered by time.
+    if (empty($turn_ids_to_include)) {
+        return [];
+    }
+    
+    list($insql, $inparams) = $DB->get_in_or_equal($turn_ids_to_include, SQL_PARAMS_NAMED);
+    $params = array_merge(['pageid' => $pageid, 'userid' => $userid], $inparams);
+    
+    $historyrecords = $DB->get_records_sql(
+        "SELECT * FROM {harpiasurvey_conversations} 
+         WHERE pageid = :pageid AND userid = :userid AND turn_id $insql 
+         ORDER BY turn_id ASC, timecreated ASC",
+        $params
+    );
+    
+    $history = [];
+    foreach ($historyrecords as $record) {
+        // Skip placeholder messages created when a new root conversation is started.
+        if (trim($record->content) === '[New conversation - send a message to start]') {
+            continue;
+        }
+        
+        $history[] = [
+            'role' => $record->role,
+            'content' => $record->content
+        ];
+    }
+    
+    return $history;
+}
 
 switch ($action) {
     case 'get_available_questions':
@@ -341,18 +445,109 @@ switch ($action) {
         // For turns mode, use requested turn_id if provided, otherwise calculate it.
         $turn_id = null;
         if ($behavior === 'turns') {
+            // Get the current highest turn number for this user and page.
+            $currentmaxturn = $DB->get_record_sql(
+                "SELECT MAX(turn_id) as max_turn FROM {harpiasurvey_conversations} 
+                 WHERE pageid = ? AND userid = ? AND turn_id IS NOT NULL",
+                [$pageid, $USER->id]
+            );
+            $currentturn = ($currentmaxturn && $currentmaxturn->max_turn) ? $currentmaxturn->max_turn : 0;
+            
             if ($requested_turn_id !== null) {
-                // Use the turn_id requested by the frontend (the viewing turn).
-                $turn_id = $requested_turn_id;
+                // Check if the requested turn is complete. If it is, we need to create a new turn.
+                $requestedturnmessages = $DB->get_records_sql(
+                    "SELECT * FROM {harpiasurvey_conversations} 
+                     WHERE pageid = ? AND userid = ? AND turn_id = ? 
+                     AND content != '[New conversation - send a message to start]'
+                     ORDER BY timecreated ASC",
+                    [$pageid, $USER->id, $requested_turn_id]
+                );
+                
+                $hasuser = false;
+                $hasai = false;
+                foreach ($requestedturnmessages as $msg) {
+                    if ($msg->role === 'user') {
+                        $hasuser = true;
+                    } else if ($msg->role === 'assistant') {
+                        $hasai = true;
+                    }
+                }
+                
+                // If requested turn is complete, create a new turn instead.
+                if ($hasuser && $hasai) {
+                    // Turn is complete - create next turn.
+                    $turn_id = $currentturn + 1;
+                } else {
+                    // Turn is not complete - use the requested turn.
+                    $turn_id = $requested_turn_id;
+                }
             } else {
                 // Fallback: Get the last turn_id for this user and page.
-                $lastturn = $DB->get_record_sql(
-                    "SELECT MAX(turn_id) as max_turn FROM {harpiasurvey_conversations} 
-                     WHERE pageid = ? AND userid = ? AND turn_id IS NOT NULL",
-                    [$pageid, $USER->id]
-                );
-                $turn_id = ($lastturn && $lastturn->max_turn) ? ($lastturn->max_turn + 1) : 1;
+                $turn_id = ($currentturn > 0) ? ($currentturn + 1) : 1;
             }
+            
+            // Check max_turns limit before saving message.
+            if (!empty($page->max_turns)) {
+                // Check if the turn_id being used exceeds max_turns.
+                // Block if trying to use a turn beyond max_turns.
+                if ($turn_id > $page->max_turns) {
+                    echo json_encode([
+                        'success' => false,
+                        'message' => get_string('maxturnsreached', 'mod_harpiasurvey')
+                    ]);
+                    break;
+                }
+                
+                // If we're using a turn that's at max_turns, check if it's already complete.
+                // Only block if the turn is complete (has both user and AI messages).
+                if ($turn_id == $page->max_turns) {
+                    // Check if this turn is already complete (has both user and AI messages).
+                    // Filter out placeholder messages.
+                    $turnmessages = $DB->get_records_sql(
+                        "SELECT * FROM {harpiasurvey_conversations} 
+                         WHERE pageid = ? AND userid = ? AND turn_id = ? 
+                         AND content != '[New conversation - send a message to start]'
+                         ORDER BY timecreated ASC",
+                        [$pageid, $USER->id, $turn_id]
+                    );
+                    
+                    // If there are no messages at all, allow the first message.
+                    if (empty($turnmessages)) {
+                        // No messages yet - allow sending the first message.
+                        // Continue to save the message.
+                    } else {
+                        // Check if turn is complete.
+                        $hasuser = false;
+                        $hasai = false;
+                        foreach ($turnmessages as $msg) {
+                            if ($msg->role === 'user') {
+                                $hasuser = true;
+                            } else if ($msg->role === 'assistant') {
+                                $hasai = true;
+                            }
+                        }
+                        
+                        // If turn is complete (has both user and AI), block sending more messages.
+                        if ($hasuser && $hasai) {
+                            echo json_encode([
+                                'success' => false,
+                                'message' => get_string('maxturnsreached', 'mod_harpiasurvey')
+                            ]);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // For continuous mode, only determine parentid if not provided AND no conversation is specified.
+        // If parentid is explicitly provided (even if it's a placeholder), use it.
+        // Only auto-determine parentid if it's truly missing (0 or not set).
+        if ($behavior === 'continuous' && $parentid <= 0) {
+            // No parentid provided - this means we're starting a new conversation.
+            // Don't auto-attach to the most recent message, as that could attach to the wrong conversation.
+            // Leave parentid as null to create a new root conversation.
+            $parentid = null;
         }
         
         // Save user message to database (questionid is NULL for page-level conversations).
@@ -371,31 +566,68 @@ switch ($action) {
         // Get conversation history for context (if chat mode).
         $history = [];
         if ($behavior === 'chat' || $behavior === 'continuous') {
-            $historyrecords = $DB->get_records('harpiasurvey_conversations', [
-                'pageid' => $pageid,
-                'userid' => $USER->id
-            ], 'timecreated ASC');
-            
-            foreach ($historyrecords as $record) {
-                $history[] = [
-                    'role' => $record->role,
-                    'content' => $record->content
-                ];
+            // For continuous mode, get history from the conversation tree (parent chain).
+            if ($behavior === 'continuous' && $usermessage->parentid) {
+                // Build history by traversing up the parent chain.
+                // IMPORTANT: Filter by modelid to ensure we only get messages from the same model.
+                $currentid = $usermessage->parentid;
+                $messagechain = [];
+                
+                // Traverse up the parent chain to build the conversation history.
+                while ($currentid) {
+                    $msg = $DB->get_record('harpiasurvey_conversations', ['id' => $currentid]);
+                    if (!$msg || $msg->pageid != $pageid || $msg->userid != $USER->id) {
+                        break;
+                    }
+                    // Filter by modelid to ensure we only include messages from the same model.
+                    if ($msg->modelid != $modelid) {
+                        // If we hit a message from a different model, stop traversing.
+                        // This ensures each model has its own conversation context.
+                        break;
+                    }
+                    // Skip placeholder messages.
+                    if (trim($msg->content) !== '[New conversation - send a message to start]') {
+                        $messagechain[] = $msg;
+                    }
+                    $currentid = $msg->parentid;
+                }
+                
+                // Reverse to get chronological order (oldest first).
+                $messagechain = array_reverse($messagechain);
+                
+                // Add current message.
+                $messagechain[] = $usermessage;
+                
+                // Build history array.
+                foreach ($messagechain as $record) {
+                    $history[] = [
+                        'role' => $record->role,
+                        'content' => $record->content
+                    ];
+                }
+            } else {
+                // Fallback: get all messages for this model (for backward compatibility or when no parent).
+                $historyrecords = $DB->get_records('harpiasurvey_conversations', [
+                    'pageid' => $pageid,
+                    'userid' => $USER->id,
+                    'modelid' => $modelid // Filter by modelid
+                ], 'timecreated ASC');
+                
+                foreach ($historyrecords as $record) {
+                    // Skip placeholder messages created when a new root conversation is started.
+                    if (trim($record->content) === '[New conversation - send a message to start]') {
+                        continue;
+                    }
+                    
+                    $history[] = [
+                        'role' => $record->role,
+                        'content' => $record->content
+                    ];
+                }
             }
         } else if ($behavior === 'turns') {
-            // For turns mode, get only messages from the current turn.
-            // For now, we'll get all messages (can be refined later).
-            $historyrecords = $DB->get_records('harpiasurvey_conversations', [
-                'pageid' => $pageid,
-                'userid' => $USER->id
-            ], 'timecreated ASC');
-            
-            foreach ($historyrecords as $record) {
-                $history[] = [
-                    'role' => $record->role,
-                    'content' => $record->content
-                ];
-            }
+            // For turns mode, get history based on branch tree structure.
+            $history = get_turn_history($DB, $pageid, $USER->id, $turn_id);
         } else {
             // Q&A mode: only include current message.
             $history[] = [
@@ -410,6 +642,25 @@ switch ($action) {
         $response = $llmservice->send_message($history);
         
         if ($response['success']) {
+            // For continuous mode, determine the root conversation ID for the response.
+            $root_conversation_id = null;
+            if ($behavior === 'continuous') {
+                if ($usermessage->parentid) {
+                    // Find the root of this conversation (traverse up to find message with parentid = null).
+                    $currentid = $usermessage->parentid;
+                    while ($currentid) {
+                        $parentmsg = $DB->get_record('harpiasurvey_conversations', ['id' => $currentid]);
+                        if (!$parentmsg || !$parentmsg->parentid) {
+                            $root_conversation_id = $currentid;
+                            break;
+                        }
+                        $currentid = $parentmsg->parentid;
+                    }
+                } else {
+                    // This is a new root conversation - use the user message ID as root.
+                    $root_conversation_id = $usermessageid;
+                }
+            }
             // Save AI response to database (store raw markdown).
             $aimessage = new stdClass();
             $aimessage->pageid = $pageid;
@@ -440,14 +691,21 @@ switch ($action) {
                 $formattedcontent = (string)$formattedcontent;
             }
             
-            echo json_encode([
+            $response_data = [
                 'success' => true,
                 'messageid' => $aimessageid,
                 'content' => $formattedcontent,
                 'parentid' => $usermessageid,
                 'user_message_turn_id' => $turn_id, // Turn ID for the user message.
                 'turn_id' => $turn_id // Turn ID for the AI message (same turn).
-            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            ];
+            
+            // For continuous mode, include the root conversation ID.
+            if ($behavior === 'continuous' && $root_conversation_id) {
+                $response_data['root_conversation_id'] = $root_conversation_id;
+            }
+            
+            echo json_encode($response_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         } else {
             echo json_encode([
                 'success' => false,
@@ -489,11 +747,24 @@ switch ($action) {
         
         $history = [];
         foreach ($messages as $msg) {
+            // Skip placeholder messages created when a new root conversation is started.
+            if (trim($msg->content) === '[New conversation - send a message to start]') {
+                continue;
+            }
+            
+            // Format content as markdown for display.
+            $formattedcontent = format_text($msg->content, FORMAT_MARKDOWN, [
+                'context' => $cm->context,
+                'noclean' => false,
+                'overflowdiv' => true
+            ]);
+            
             $history[] = [
                 'id' => $msg->id,
                 'role' => $msg->role,
-                'content' => $msg->content,
+                'content' => $formattedcontent,
                 'parentid' => $msg->parentid,
+                'turn_id' => $msg->turn_id,
                 'timecreated' => $msg->timecreated
             ];
         }
@@ -572,6 +843,796 @@ switch ($action) {
             'message' => 'Evaluation saved'
         ]);
         break;
+
+    case 'get_conversation_tree':
+        require_capability('mod/harpiasurvey:view', $cm->context);
+        
+        // Get behavior from page.
+        $behavior = $page->behavior ?? 'continuous';
+        
+        // For continuous mode, build tree based on root conversations (parentid is NULL).
+        if ($behavior === 'continuous') {
+            // Get all root conversations (where parentid is NULL).
+            $rootconversations = $DB->get_records_sql(
+                "SELECT id, MIN(timecreated) as timecreated
+                 FROM {harpiasurvey_conversations} 
+                 WHERE pageid = ? AND userid = ? AND parentid IS NULL
+                 GROUP BY id
+                 ORDER BY timecreated ASC",
+                [$pageid, $USER->id]
+            );
+            
+            // Build tree structure for continuous conversations.
+            $roots = [];
+            foreach ($rootconversations as $rootconv) {
+                // Count messages in this conversation tree (simple count, not full traversal).
+                // We'll count messages that have this root as ancestor by checking parentid chain.
+                // For now, just count direct children (we can improve this later if needed).
+                $messagecount = $DB->count_records_sql(
+                    "SELECT COUNT(*) FROM {harpiasurvey_conversations}
+                     WHERE pageid = ? AND userid = ? AND (id = ? OR parentid = ?)",
+                    [$pageid, $USER->id, $rootconv->id, $rootconv->id]
+                );
+                
+                // For simplicity, we'll use the root conversation ID as the "turn_id" for display.
+                // In continuous mode, we don't have turns, but we need a unique identifier.
+                $roots[] = [
+                    'turn_id' => $rootconv->id, // Use conversation ID as identifier
+                    'conversation_id' => $rootconv->id,
+                    'is_root' => true,
+                    'children' => [],
+                    'parent_turn_id' => null,
+                    'branch_label' => null,
+                    'timecreated' => $rootconv->timecreated,
+                    'timecreated_str' => userdate($rootconv->timecreated, get_string('strftimedatetime', 'langconfig')),
+                    'message_count' => $messagecount
+                ];
+            }
+            
+            // Get current conversation (most recent root conversation).
+            $currentconv = $DB->get_record_sql(
+                "SELECT id FROM {harpiasurvey_conversations}
+                 WHERE pageid = ? AND userid = ? AND parentid IS NULL
+                 ORDER BY timecreated DESC
+                 LIMIT 1",
+                [$pageid, $USER->id]
+            );
+            $currentTurnId = $currentconv ? $currentconv->id : (count($roots) > 0 ? $roots[0]['turn_id'] : 1);
+            
+            echo json_encode([
+                'success' => true,
+                'tree' => [
+                    'roots' => $roots
+                ],
+                'current_turn_id' => $currentTurnId,
+                'behavior' => 'continuous'
+            ]);
+            break;
+        }
+        
+        // For turns mode, use existing logic.
+        // Get all turns for this user and page (from conversations).
+        $turns = $DB->get_records_sql(
+            "SELECT turn_id, MIN(timecreated) as timecreated
+             FROM {harpiasurvey_conversations} 
+             WHERE pageid = ? AND userid = ? AND turn_id IS NOT NULL 
+             GROUP BY turn_id
+             ORDER BY turn_id ASC",
+            [$pageid, $USER->id]
+        );
+        
+        // Get all branches.
+        $branches = $DB->get_records('harpiasurvey_turn_branches', [
+            'pageid' => $pageid,
+            'userid' => $USER->id
+        ], 'parent_turn_id ASC, child_turn_id ASC');
+        
+        // Build tree structure.
+        $turnMap = [];
+        $parentMap = []; // Maps child_turn_id to parent info.
+        
+        // First, identify all turns from conversations and mark them as potential roots.
+        foreach ($turns as $turn) {
+            $turnMap[$turn->turn_id] = [
+                'turn_id' => $turn->turn_id,
+                'is_root' => true,
+                'children' => [],
+                'parent_turn_id' => null,
+                'branch_label' => null,
+                'timecreated' => $turn->timecreated,
+                'timecreated_str' => userdate($turn->timecreated, get_string('strftimedatetime', 'langconfig'))
+            ];
+        }
+        
+        // Also add turns that exist only in branches (child turns without messages yet).
+        foreach ($branches as $branch) {
+            // Add child turn if it doesn't exist yet.
+            if (!isset($turnMap[$branch->child_turn_id])) {
+                $turnMap[$branch->child_turn_id] = [
+                    'turn_id' => $branch->child_turn_id,
+                    'is_root' => true, // Will be set to false below if it has a parent
+                    'children' => [],
+                    'parent_turn_id' => null,
+                    'branch_label' => null,
+                    'timecreated' => $branch->timecreated,
+                    'timecreated_str' => userdate($branch->timecreated, get_string('strftimedatetime', 'langconfig'))
+                ];
+            }
+            // Add parent turn if it doesn't exist yet (might be a root without messages).
+            if (!isset($turnMap[$branch->parent_turn_id])) {
+                // Try to find timecreated for parent from conversations or branches if not set
+                // If we can't find it, use branch creation time as fallback
+                $turnMap[$branch->parent_turn_id] = [
+                    'turn_id' => $branch->parent_turn_id,
+                    'is_root' => true,
+                    'children' => [],
+                    'parent_turn_id' => null,
+                    'branch_label' => null,
+                    'timecreated' => $branch->timecreated, // Fallback
+                    'timecreated_str' => userdate($branch->timecreated, get_string('strftimedatetime', 'langconfig'))
+                ];
+            }
+        }
+        
+        // Then, process branches to build parent-child relationships.
+        // First, identify which branches are "direct branches" (children of root turns).
+        $directBranches = []; // Branches that should appear at root level.
+        $derivedBranches = []; // Branches that should be nested.
+        
+        foreach ($branches as $branch) {
+            if (isset($turnMap[$branch->child_turn_id])) {
+                // Check if parent is a root turn.
+                $parentIsRoot = isset($turnMap[$branch->parent_turn_id]) && 
+                                $turnMap[$branch->parent_turn_id]['is_root'];
+                
+                if ($parentIsRoot) {
+                    // This is a direct branch - part of the same conversation, shown at same level as root.
+                    $directBranches[] = $branch;
+                    // Keep as non-root (it's still a branch), but mark as direct branch.
+                    $turnMap[$branch->child_turn_id]['is_root'] = false; // Still a branch, not a root
+                    $turnMap[$branch->child_turn_id]['parent_turn_id'] = $branch->parent_turn_id;
+                    $turnMap[$branch->child_turn_id]['branch_label'] = $branch->branch_label;
+                    $turnMap[$branch->child_turn_id]['is_direct_branch'] = true; // Flag for UI (same level display)
+                    // Add to parent's direct_branches array instead of children.
+                    if (!isset($turnMap[$branch->parent_turn_id]['direct_branches'])) {
+                        $turnMap[$branch->parent_turn_id]['direct_branches'] = [];
+                    }
+                    $turnMap[$branch->parent_turn_id]['direct_branches'][] = &$turnMap[$branch->child_turn_id];
+                } else {
+                    // This is a derived branch - will be nested.
+                    $derivedBranches[] = $branch;
+                    $turnMap[$branch->child_turn_id]['is_root'] = false;
+                    $turnMap[$branch->child_turn_id]['parent_turn_id'] = $branch->parent_turn_id;
+                    $turnMap[$branch->child_turn_id]['branch_label'] = $branch->branch_label;
+                    $turnMap[$branch->child_turn_id]['is_direct_branch'] = false;
+                    // Store parent relationship for nested structure.
+                    $parentMap[$branch->child_turn_id] = $branch->parent_turn_id;
+                }
+            }
+        }
+        
+        // Build children arrays - only for derived branches (nested structure).
+        foreach ($derivedBranches as $branch) {
+            $childId = $branch->child_turn_id;
+            $parentId = $branch->parent_turn_id;
+            if (isset($turnMap[$parentId]) && isset($turnMap[$childId])) {
+                if (!isset($turnMap[$parentId]['children'])) {
+                    $turnMap[$parentId]['children'] = [];
+                }
+                // Use references so deeper descendants remain attached when more levels are processed.
+                $turnMap[$parentId]['children'][] = &$turnMap[$childId];
+            }
+        }
+        
+        // Sort children by turn_id for each parent.
+        foreach ($turnMap as $turnId => &$turn) {
+            usort($turn['children'], function($a, $b) {
+                return $a['turn_id'] <=> $b['turn_id'];
+            });
+        }
+        unset($turn);
+        
+        // Get current turn (highest turn_id from both conversations and branches).
+        $maxTurnConv = $DB->get_record_sql(
+            "SELECT MAX(turn_id) as max_turn 
+             FROM {harpiasurvey_conversations} 
+             WHERE pageid = ? AND userid = ? AND turn_id IS NOT NULL",
+            [$pageid, $USER->id]
+        );
+        $maxTurnBranch = $DB->get_record_sql(
+            "SELECT MAX(child_turn_id) as max_turn 
+             FROM {harpiasurvey_turn_branches} 
+             WHERE pageid = ? AND userid = ?",
+            [$pageid, $USER->id]
+        );
+        $currentTurnId = max(
+            ($maxTurnConv && $maxTurnConv->max_turn) ? $maxTurnConv->max_turn : 0,
+            ($maxTurnBranch && $maxTurnBranch->max_turn) ? $maxTurnBranch->max_turn : 0
+        );
+        if ($currentTurnId === 0) {
+            $currentTurnId = 1;
+        }
+        
+        // Build roots array (only actual roots, not direct branches).
+        // Direct branches are part of their parent conversation's tree.
+        $roots = [];
+        foreach ($turnMap as $turn) {
+            if ($turn['is_root'] && !isset($turn['is_direct_branch'])) {
+                $roots[] = $turn;
+            }
+        }
+        
+        // Sort roots by turn_id.
+        usort($roots, function($a, $b) {
+            return $a['turn_id'] <=> $b['turn_id'];
+        });
+        
+        // Ensure direct_branches arrays are properly included (convert references to actual arrays).
+        foreach ($roots as &$root) {
+            if (isset($root['direct_branches'])) {
+                // Convert reference array to actual array for JSON encoding.
+                $root['direct_branches'] = array_values($root['direct_branches']);
+            }
+        }
+        unset($root);
+        
+        echo json_encode([
+            'success' => true,
+            'tree' => [
+                'roots' => $roots
+            ],
+            'current_turn_id' => $currentTurnId,
+            'behavior' => 'turns'
+        ]);
+        break;
+
+    case 'create_branch':
+        require_capability('mod/harpiasurvey:view', $cm->context);
+        require_sesskey();
+        
+        $parent_turn_id = required_param('parent_turn_id', PARAM_INT);
+        
+        // Verify parent turn exists - check both conversations and branches tables.
+        $parentTurnExists = false;
+        
+        // Check if turn has messages (conversations).
+        $parentTurnMsg = $DB->get_record('harpiasurvey_conversations', [
+            'pageid' => $pageid,
+            'userid' => $USER->id,
+            'turn_id' => $parent_turn_id
+        ], 'turn_id');
+        
+        if ($parentTurnMsg) {
+            $parentTurnExists = true;
+        } else {
+            // Check if turn exists as a child in branches (might be a new root that was just created).
+            $parentTurnBranch = $DB->get_record('harpiasurvey_turn_branches', [
+                'pageid' => $pageid,
+                'userid' => $USER->id,
+                'child_turn_id' => $parent_turn_id
+            ], 'child_turn_id');
+            
+            if ($parentTurnBranch) {
+                $parentTurnExists = true;
+            } else {
+                // Check if it's a root turn (exists as parent but no messages yet).
+                // For now, allow creating branch from any turn_id that's >= 1.
+                if ($parent_turn_id >= 1) {
+                    $parentTurnExists = true;
+                }
+            }
+        }
+        
+        if (!$parentTurnExists) {
+            echo json_encode([
+                'success' => false,
+                'message' => 'Parent turn does not exist'
+            ]);
+            break;
+        }
+        
+        // Check max_turns limit before creating new branch - scoped to the conversation of parent_turn_id.
+        if (!empty($page->max_turns)) {
+            // Build parent map for all branches to identify conversation roots.
+            $branchesForLimit = $DB->get_records('harpiasurvey_turn_branches', [
+                'pageid' => $pageid,
+                'userid' => $USER->id
+            ]);
+            $parentMap = [];
+            $allTurnIds = [];
+            foreach ($branchesForLimit as $b) {
+                $parentMap[$b->child_turn_id] = $b->parent_turn_id;
+                $allTurnIds[$b->child_turn_id] = true;
+                $allTurnIds[$b->parent_turn_id] = true;
+            }
+            // Include turns that exist only as conversations (roots with no branches yet).
+            $turnRecords = $DB->get_records_sql(
+                "SELECT DISTINCT turn_id FROM {harpiasurvey_conversations}
+                 WHERE pageid = ? AND userid = ? AND turn_id IS NOT NULL",
+                [$pageid, $USER->id]
+            );
+            foreach ($turnRecords as $tr) {
+                $allTurnIds[$tr->turn_id] = true;
+            }
+
+            $findRoot = function($turnId) use (&$parentMap) {
+                $current = $turnId;
+                $safety = 0;
+                while (isset($parentMap[$current]) && $safety < 1000) {
+                    $current = $parentMap[$current];
+                    $safety++;
+                }
+                return $current;
+            };
+
+            $rootForParent = $findRoot($parent_turn_id);
+
+            // Count nodes per root conversation.
+            $countsByRoot = [];
+            foreach (array_keys($allTurnIds) as $tid) {
+                $root = $findRoot($tid);
+                if (!isset($countsByRoot[$root])) {
+                    $countsByRoot[$root] = 0;
+                }
+                $countsByRoot[$root]++;
+            }
+            // Ensure the parent conversation is counted even if not present above.
+            if (!isset($countsByRoot[$rootForParent])) {
+                $countsByRoot[$rootForParent] = 1;
+            }
+
+            $currentConversationTurnCount = $countsByRoot[$rootForParent];
+            if ($currentConversationTurnCount >= $page->max_turns) {
+                echo json_encode([
+                    'success' => false,
+                    'message' => get_string('maxturnsreached', 'mod_harpiasurvey')
+                ]);
+                break;
+            }
+        }
+        
+        // Get the next available turn_id for this user/page.
+        // Check both conversations and branches to find the max turn_id.
+        $maxTurnConv = $DB->get_record_sql(
+            "SELECT MAX(turn_id) as max_turn 
+             FROM {harpiasurvey_conversations} 
+             WHERE pageid = ? AND userid = ? AND turn_id IS NOT NULL",
+            [$pageid, $USER->id]
+        );
+        
+        $maxTurnBranch = $DB->get_record_sql(
+            "SELECT MAX(child_turn_id) as max_turn 
+             FROM {harpiasurvey_turn_branches} 
+             WHERE pageid = ? AND userid = ?",
+            [$pageid, $USER->id]
+        );
+        
+        $maxTurn = max(
+            ($maxTurnConv && $maxTurnConv->max_turn) ? $maxTurnConv->max_turn : 0,
+            ($maxTurnBranch && $maxTurnBranch->max_turn) ? $maxTurnBranch->max_turn : 0
+        );
+        
+        $new_turn_id = $maxTurn + 1;
+        
+        // Create branch record.
+        // branch_label is now just the turn_id (child turn number).
+        $branch = new stdClass();
+        $branch->pageid = $pageid;
+        $branch->userid = $USER->id;
+        $branch->parent_turn_id = $parent_turn_id;
+        $branch->child_turn_id = $new_turn_id;
+        $branch->branch_label = (string)$new_turn_id; // Store just the turn number
+        $branch->timecreated = time();
+        $DB->insert_record('harpiasurvey_turn_branches', $branch);
+
+        // Also create a placeholder conversation entry so the branch appears immediately.
+        // Reuse a model associated with this page (first associated, or first enabled model).
+        $pagemodel = $DB->get_record('harpiasurvey_page_models', [
+            'pageid' => $pageid
+        ], '*', IGNORE_MULTIPLE);
+        if (!$pagemodel) {
+            $pagemodel = $DB->get_record('harpiasurvey_models', [
+                'harpiasurveyid' => $harpiasurvey->id,
+                'enabled' => 1
+            ], 'id', IGNORE_MULTIPLE);
+        }
+        $modelid = $pagemodel ? $pagemodel->modelid ?? $pagemodel->id : null;
+
+        if ($modelid) {
+            $placeholder = new stdClass();
+            $placeholder->pageid = $pageid;
+            $placeholder->userid = $USER->id;
+            $placeholder->modelid = $modelid;
+            $placeholder->turn_id = $new_turn_id;
+            $placeholder->parentid = null;
+            $placeholder->role = 'user';
+            $placeholder->content = '[New conversation - send a message to start]';
+            $placeholder->timecreated = time();
+            $placeholder->timemodified = time();
+            $newconversationid = $DB->insert_record('harpiasurvey_conversations', $placeholder);
+        } else {
+            $newconversationid = null;
+        }
+        
+        echo json_encode([
+            'success' => true,
+            'new_turn_id' => $new_turn_id,
+            'new_conversation_id' => $newconversationid,
+            'branch_label' => (string)$new_turn_id,
+            'message' => 'Turn created successfully'
+        ]);
+        break;
+
+    case 'create_root':
+        require_capability('mod/harpiasurvey:view', $cm->context);
+        require_sesskey();
+        
+        // Get behavior from page.
+        $behavior = $page->behavior ?? 'continuous';
+        
+        // Get the first model associated with this page.
+        $pagemodel = $DB->get_record('harpiasurvey_page_models', [
+            'pageid' => $pageid
+        ], '*', IGNORE_MULTIPLE);
+        
+        if (!$pagemodel) {
+            // Fallback: get the first enabled model for this harpiasurvey instance.
+            $model = $DB->get_record('harpiasurvey_models', [
+                'harpiasurveyid' => $harpiasurvey->id,
+                'enabled' => 1
+            ], 'id', IGNORE_MULTIPLE);
+            
+            if (!$model) {
+                echo json_encode([
+                    'success' => false,
+                    'message' => 'No model available for this page'
+                ]);
+                break;
+            }
+            $modelid = $model->id;
+        } else {
+            $modelid = $pagemodel->modelid;
+        }
+        
+        if ($behavior === 'continuous') {
+            // For continuous mode, create a root conversation (parentid = NULL, no turn_id).
+            // Create a placeholder conversation record so the root appears in the tree immediately.
+            $placeholder = new stdClass();
+            $placeholder->pageid = $pageid;
+            $placeholder->userid = $USER->id;
+            $placeholder->modelid = $modelid;
+            $placeholder->turn_id = null; // No turn_id for continuous mode.
+            $placeholder->parentid = null; // Root conversation.
+            $placeholder->role = 'user';
+            $placeholder->content = '[New conversation - send a message to start]';
+            $placeholder->timecreated = time();
+            $placeholder->timemodified = time();
+            $new_conversation_id = $DB->insert_record('harpiasurvey_conversations', $placeholder);
+            
+            echo json_encode([
+                'success' => true,
+                'new_turn_id' => $new_conversation_id, // Use conversation ID as identifier.
+                'new_conversation_id' => $new_conversation_id,
+                'message' => 'New root conversation created. Send a message to start it.'
+            ]);
+        } else {
+            // For turns mode, create a new turn.
+            // Get the next available turn_id for this user/page.
+            // Check both conversations and branches to find the max turn_id.
+            $maxTurnConv = $DB->get_record_sql(
+                "SELECT MAX(turn_id) as max_turn 
+                 FROM {harpiasurvey_conversations} 
+                 WHERE pageid = ? AND userid = ? AND turn_id IS NOT NULL",
+                [$pageid, $USER->id]
+            );
+            
+            $maxTurnBranch = $DB->get_record_sql(
+                "SELECT MAX(child_turn_id) as max_turn 
+                 FROM {harpiasurvey_turn_branches} 
+                 WHERE pageid = ? AND userid = ?",
+                [$pageid, $USER->id]
+            );
+            
+            $maxTurn = max(
+                ($maxTurnConv && $maxTurnConv->max_turn) ? $maxTurnConv->max_turn : 0,
+                ($maxTurnBranch && $maxTurnBranch->max_turn) ? $maxTurnBranch->max_turn : 0
+            );
+
+            $new_turn_id = $maxTurn + 1;
+            
+            // Create a placeholder conversation record so the root appears in the tree immediately.
+            // This will be updated when the user sends the first actual message.
+            // Use 'user' role with a placeholder message so it's treated as a normal conversation.
+            $placeholder = new stdClass();
+            $placeholder->pageid = $pageid;
+            $placeholder->userid = $USER->id;
+            $placeholder->modelid = $modelid;
+            $placeholder->turn_id = $new_turn_id;
+            $placeholder->role = 'user';
+            $placeholder->content = '[New conversation - send a message to start]';
+            $placeholder->timecreated = time();
+            $placeholder->timemodified = time();
+            $DB->insert_record('harpiasurvey_conversations', $placeholder);
+            
+            echo json_encode([
+                'success' => true,
+                'new_turn_id' => $new_turn_id,
+                'message' => 'New root conversation created. Send a message to start it.'
+            ]);
+        }
+        break;
+        
+    case 'get_available_subpage_questions':
+        $subpageid = required_param('subpageid', PARAM_INT);
+        $pageid = required_param('pageid', PARAM_INT);
+        
+        // Verify page belongs to this harpiasurvey instance.
+        $page = $DB->get_record('harpiasurvey_pages', ['id' => $pageid], '*', MUST_EXIST);
+        if ($page->experimentid) {
+            $experiment = $DB->get_record('harpiasurvey_experiments', ['id' => $page->experimentid, 'harpiasurveyid' => $harpiasurvey->id], '*', MUST_EXIST);
+        }
+        
+        // Verify subpage belongs to the page.
+        $subpage = $DB->get_record('harpiasurvey_subpages', ['id' => $subpageid, 'pageid' => $pageid], '*', MUST_EXIST);
+        
+        // Get all questions for this harpiasurvey instance.
+        $questions = $DB->get_records('harpiasurvey_questions', ['harpiasurveyid' => $harpiasurvey->id], 'name ASC');
+        
+        // Get questions already on this subpage.
+        $subpagequestionids = $DB->get_records('harpiasurvey_subpage_questions', ['subpageid' => $subpageid], '', 'questionid');
+        $subpagequestionids = array_keys($subpagequestionids);
+        
+        // Filter out questions already on the subpage.
+        $availablequestions = [];
+        foreach ($questions as $question) {
+            if (!in_array($question->id, $subpagequestionids)) {
+                $description = format_text($question->description, $question->descriptionformat, [
+                    'context' => $cm->context,
+                    'noclean' => false,
+                    'overflowdiv' => true
+                ]);
+                $description = strip_tags($description);
+                if (strlen($description) > 100) {
+                    $description = substr($description, 0, 100) . '...';
+                }
+                
+                $availablequestions[] = [
+                    'id' => $question->id,
+                    'name' => format_string($question->name),
+                    'type' => $question->type,
+                    'typedisplay' => get_string('type' . $question->type, 'mod_harpiasurvey'),
+                    'description' => $description
+                ];
+            }
+        }
+        
+        echo json_encode([
+            'success' => true,
+            'questions' => $availablequestions
+        ]);
+        break;
+        
+    case 'add_question_to_subpage':
+        require_sesskey();
+        
+        $subpageid = required_param('subpageid', PARAM_INT);
+        $pageid = required_param('pageid', PARAM_INT);
+        $questionid = required_param('questionid', PARAM_INT);
+        
+        // Verify page belongs to this harpiasurvey instance.
+        $page = $DB->get_record('harpiasurvey_pages', ['id' => $pageid], '*', MUST_EXIST);
+        if ($page->experimentid) {
+            $experiment = $DB->get_record('harpiasurvey_experiments', ['id' => $page->experimentid, 'harpiasurveyid' => $harpiasurvey->id], '*', MUST_EXIST);
+        }
+        
+        // Verify subpage belongs to the page.
+        $subpage = $DB->get_record('harpiasurvey_subpages', ['id' => $subpageid, 'pageid' => $pageid], '*', MUST_EXIST);
+        
+        // Check if question belongs to this harpiasurvey instance.
+        $question = $DB->get_record('harpiasurvey_questions', [
+            'id' => $questionid,
+            'harpiasurveyid' => $harpiasurvey->id
+        ], '*', MUST_EXIST);
+        
+        // Check if question is already on this subpage.
+        $existing = $DB->get_record('harpiasurvey_subpage_questions', [
+            'subpageid' => $subpageid,
+            'questionid' => $questionid
+        ]);
+        
+        if ($existing) {
+            echo json_encode([
+                'success' => false,
+                'message' => get_string('questionalreadyonsubpage', 'mod_harpiasurvey')
+            ]);
+            break;
+        }
+        
+        // Get max sort order.
+        $maxsort = $DB->get_field_sql(
+            "SELECT MAX(sortorder) FROM {harpiasurvey_subpage_questions} WHERE subpageid = ?",
+            [$subpageid]
+        );
+        
+        // Add question to subpage.
+        $subpagequestion = new stdClass();
+        $subpagequestion->subpageid = $subpageid;
+        $subpagequestion->questionid = $questionid;
+        $subpagequestion->sortorder = ($maxsort !== false) ? $maxsort + 1 : 0;
+        $subpagequestion->timecreated = time();
+        $subpagequestion->enabled = 1;
+        $subpagequestion->turn_visibility_type = 'all_turns'; // Default to all turns.
+        $subpagequestion->turn_number = null;
+        
+        $DB->insert_record('harpiasurvey_subpage_questions', $subpagequestion);
+        
+        echo json_encode([
+            'success' => true,
+            'message' => get_string('questionaddedtosubpage', 'mod_harpiasurvey')
+        ]);
+        break;
+        
+    case 'export_conversation':
+        require_sesskey();
+        
+        // Get optional parameters
+        $turn_id = optional_param('turn_id', null, PARAM_INT); // For turns mode: export specific conversation
+        $conversation_id = optional_param('conversation_id', null, PARAM_INT); // For continuous mode: export specific conversation
+        
+        // Verify page belongs to this harpiasurvey instance
+        if (!$page || $page->id != $pageid) {
+            $page = $DB->get_record('harpiasurvey_pages', ['id' => $pageid], '*', MUST_EXIST);
+        }
+        $experiment = $DB->get_record('harpiasurvey_experiments', ['id' => $page->experimentid], '*', MUST_EXIST);
+        if ($experiment->harpiasurveyid != $harpiasurvey->id) {
+            echo json_encode([
+                'success' => false,
+                'message' => 'Invalid page'
+            ]);
+            break;
+        }
+        
+        if ($page->type !== 'aichat') {
+            echo json_encode([
+                'success' => false,
+                'message' => 'This page is not an AI chat page'
+            ]);
+            break;
+        }
+        
+        $behavior = $page->behavior ?? 'continuous';
+        
+        // Collect messages to export
+        $messages = [];
+        
+        if ($behavior === 'turns' && $turn_id) {
+            // For turns mode: export all messages in the conversation pathway
+            $turn_ids_to_include = [];
+            $branch = $DB->get_record('harpiasurvey_turn_branches', [
+                'child_turn_id' => $turn_id,
+                'pageid' => $pageid,
+                'userid' => $USER->id
+            ]);
+            
+            if ($branch) {
+                // Build path from root to this turn
+                $parent_turn_id = $branch->parent_turn_id;
+                $current_parent = $parent_turn_id;
+                $path_to_root = [$parent_turn_id];
+                
+                while ($current_parent) {
+                    $parent_branch = $DB->get_record('harpiasurvey_turn_branches', [
+                        'child_turn_id' => $current_parent,
+                        'pageid' => $pageid,
+                        'userid' => $USER->id
+                    ]);
+                    if ($parent_branch) {
+                        $current_parent = $parent_branch->parent_turn_id;
+                        if ($current_parent) {
+                            array_unshift($path_to_root, $current_parent);
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                $turn_ids_to_include = $path_to_root;
+                $turn_ids_to_include[] = $turn_id;
+            } else {
+                // Root turn
+                $turn_ids_to_include = [$turn_id];
+            }
+            
+            // Get all messages for these turn IDs
+            if (!empty($turn_ids_to_include)) {
+                list($insql, $inparams) = $DB->get_in_or_equal($turn_ids_to_include, SQL_PARAMS_NAMED);
+                $inparams['pageid'] = $pageid;
+                $inparams['userid'] = $USER->id;
+                
+                $messages = $DB->get_records_sql(
+                    "SELECT * FROM {harpiasurvey_conversations} 
+                     WHERE pageid = :pageid AND userid = :userid AND turn_id $insql 
+                     AND content != '[New conversation - send a message to start]'
+                     ORDER BY turn_id ASC, timecreated ASC",
+                    $inparams
+                );
+            }
+        } else if ($behavior === 'continuous' && $conversation_id) {
+            // For continuous mode: export all messages in the conversation
+            // Find root conversation
+            $root = $DB->get_record('harpiasurvey_conversations', [
+                'id' => $conversation_id,
+                'pageid' => $pageid,
+                'userid' => $USER->id
+            ]);
+            
+            if ($root) {
+                // Get all messages in this conversation tree (recursive query)
+                $messages = $DB->get_records_sql(
+                    "SELECT * FROM {harpiasurvey_conversations} 
+                     WHERE pageid = ? AND userid = ? AND (
+                         id = ? OR 
+                         parentid = ? OR 
+                         parentid IN (
+                             SELECT id FROM {harpiasurvey_conversations} 
+                             WHERE pageid = ? AND userid = ? AND (id = ? OR parentid = ?)
+                         )
+                     )
+                     AND content != '[New conversation - send a message to start]'
+                     ORDER BY timecreated ASC",
+                    [$pageid, $USER->id, $conversation_id, $conversation_id, $pageid, $USER->id, $conversation_id, $conversation_id]
+                );
+            }
+        } else {
+            // Export all conversations for this page (fallback)
+            $messages = $DB->get_records('harpiasurvey_conversations', [
+                'pageid' => $pageid,
+                'userid' => $USER->id
+            ], 'timecreated ASC');
+        }
+        
+        // Filter out placeholder messages
+        $messages = array_filter($messages, function($msg) {
+            return trim($msg->content) !== '[New conversation - send a message to start]';
+        });
+        
+        // Generate CSV
+        $filename = 'conversation_export_' . date('Y-m-d_His') . '.csv';
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        
+        // Output UTF-8 BOM for Excel compatibility
+        echo "\xEF\xBB\xBF";
+        
+        // Open output stream
+        $output = fopen('php://output', 'w');
+        
+        // Write CSV header
+        fputcsv($output, [
+            'Turn ID',
+            'Model ID',
+            'Role',
+            'Content',
+            'Timestamp',
+            'Message ID',
+            'Parent ID'
+        ]);
+        
+        // Write messages
+        foreach ($messages as $msg) {
+            fputcsv($output, [
+                $msg->turn_id ?? '',
+                $msg->modelid ?? '',
+                $msg->role ?? '',
+                $msg->content ?? '',
+                date('Y-m-d H:i:s', $msg->timecreated ?? 0),
+                $msg->id ?? '',
+                $msg->parentid ?? ''
+            ]);
+        }
+        
+        fclose($output);
+        exit;
+        break;
         
     default:
         echo json_encode([
@@ -580,4 +1641,3 @@ switch ($action) {
         ]);
         break;
 }
-

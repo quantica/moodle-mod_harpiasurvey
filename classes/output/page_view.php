@@ -77,6 +77,21 @@ class page_view implements renderable, templatable {
     public $canmanage;
 
     /**
+     * @var string Delete URL
+     */
+    public $deleteurl;
+
+    /**
+     * @var string Navigation mode (free_navigation, only_forward)
+     */
+    public $navigation_mode;
+
+    /**
+     * @var int|null Initial turn number from query parameter
+     */
+    public $initial_turn;
+
+    /**
      * Class constructor.
      *
      * @param object $page
@@ -88,8 +103,11 @@ class page_view implements renderable, templatable {
      * @param array $allpages
      * @param int $experimentid
      * @param bool $canmanage
+     * @param string $deleteurl
+     * @param string $navigation_mode
+     * @param int|null $initial_turn Initial turn from query parameter
      */
-    public function __construct($page, $context, $editurl, $questions = [], $cmid = 0, $pageid = 0, $allpages = [], $experimentid = 0, $canmanage = true) {
+    public function __construct($page, $context, $editurl, $questions = [], $cmid = 0, $pageid = 0, $allpages = [], $experimentid = 0, $canmanage = true, $deleteurl = '', $navigation_mode = 'free_navigation', $initial_turn = null) {
         $this->page = $page;
         $this->context = $context;
         $this->editurl = $editurl;
@@ -99,6 +117,9 @@ class page_view implements renderable, templatable {
         $this->allpages = $allpages;
         $this->experimentid = $experimentid;
         $this->canmanage = $canmanage;
+        $this->deleteurl = $deleteurl;
+        $this->navigation_mode = $navigation_mode;
+        $this->initial_turn = $initial_turn;
     }
 
     /**
@@ -139,14 +160,60 @@ class page_view implements renderable, templatable {
         $turnevaluationquestions = []; // Questions that evaluate turns (for aichat pages with turns mode).
         $hasnonaiconversationquestions = false;
         
+        // Check if this is a turns-based aichat page.
+        $isturnspage = ($this->page->type === 'aichat' && ($this->page->behavior ?? 'continuous') === 'turns');
+        
+        // Check if this is a multi-model page (for continuous mode with multiple models).
+        // We need to check this early to determine if we should skip questions in the regular list.
+        $pagemodels = [];
+        $use_multi_model_tabs = false;
+        if ($this->page->type === 'aichat') {
+            $pagemodels = $DB->get_records('harpiasurvey_page_models', ['pageid' => $this->pageid], '', 'modelid');
+            $modelids = array_keys($pagemodels);
+            $has_multiple_models = (count($modelids) > 1);
+            // Enable multi-model tabs for both continuous and turns mode when multiple models exist
+            $use_multi_model_tabs = $has_multiple_models;
+        }
+        
         foreach ($this->questions as $question) {
             if (!$question->enabled) {
                 continue; // Skip disabled questions.
             }
 
-            // Note: For aichat pages with turns mode, questions are also processed as turn evaluation questions
-            // below, but they should still appear in the regular questions list so users can see them from the start.
-            // They will appear both in the regular list and dynamically when turns are created.
+            // For multi-model pages, skip all questions from the regular list.
+            // They will only appear in the model tabs.
+            if ($use_multi_model_tabs) {
+                continue;
+            }
+
+            // For turns-based pages, skip questions that have turn visibility rules in the regular list.
+            // These questions will only appear in the turn evaluation questions section.
+            if ($isturnspage) {
+                // Check if question has any turn visibility rules.
+                $hasturnvisibility = false;
+                
+                // Check show_only_turn: if set, question only shows on that specific turn.
+                if (isset($question->show_only_turn) && $question->show_only_turn !== null && $question->show_only_turn !== '') {
+                    $hasturnvisibility = true;
+                    // If show_only_turn is set, always skip from regular list (it will appear in turn evaluation section).
+                    // The JavaScript will filter it based on the current turn.
+                    continue;
+                }
+                
+                // Check hide_on_turn: if set, question has turn visibility rules.
+                if (isset($question->hide_on_turn) && $question->hide_on_turn !== null && $question->hide_on_turn !== '') {
+                    $hasturnvisibility = true;
+                    // If hide_on_turn is set, always skip from regular list (it will appear in turn evaluation section).
+                    continue;
+                }
+                
+                // Check min_turn: if greater than 1, question has turn visibility rules.
+                if (isset($question->min_turn) && $question->min_turn !== null && $question->min_turn !== '' && (int)$question->min_turn > 1) {
+                    $hasturnvisibility = true;
+                    // If min_turn is greater than 1, always skip from regular list (it will appear in turn evaluation section).
+                    continue;
+                }
+            }
 
             global $DB;
             
@@ -287,6 +354,8 @@ class page_view implements renderable, templatable {
                 // For turns mode pages, if min_turn is not set, default to 1 (appears from first turn).
                 // This allows questions added before min_turn was implemented to still work.
                 $minturn = isset($question->min_turn) && $question->min_turn !== null ? $question->min_turn : 1;
+                $showonlyturn = isset($question->show_only_turn) && $question->show_only_turn !== null ? (int)$question->show_only_turn : null;
+                $hideonturn = isset($question->hide_on_turn) && $question->hide_on_turn !== null ? (int)$question->hide_on_turn : null;
 
                 // Load question data (similar to regular questions).
                 $settings = [];
@@ -372,6 +441,8 @@ class page_view implements renderable, templatable {
                     'is_shorttext' => ($question->type === 'shorttext'),
                     'is_longtext' => ($question->type === 'longtext'),
                     'min_turn' => $minturn, // Use calculated min_turn (defaults to 1 if not set).
+                    'show_only_turn' => $showonlyturn, // Show only on this specific turn (null = all turns).
+                    'hide_on_turn' => $hideonturn, // Hide on this specific turn (null = no hiding).
                     'cmid' => $this->cmid,
                     'pageid' => $this->pageid,
                 ];
@@ -397,8 +468,9 @@ class page_view implements renderable, templatable {
             if ($currentindex >= 0) {
                 $currentpagenum = $currentindex + 1;
 
-                // Previous page.
-                if ($currentindex > 0) {
+                // Previous page - only show if navigation mode allows it.
+                // In 'only_forward' mode, hide previous button for non-admins (users can't go back).
+                if ($currentindex > 0 && ($this->navigation_mode === 'free_navigation' || $this->canmanage)) {
                     $prevpage = $pagesarray[$currentindex - 1];
                     $prevurl = new \moodle_url('/mod/harpiasurvey/view_experiment.php', [
                         'id' => $this->cmid,
@@ -436,7 +508,8 @@ class page_view implements renderable, templatable {
                     $pagenumbers[] = [
                         'number' => $index + 1,
                         'url' => $pageurl->out(false),
-                        'is_current' => ($p->id == $this->pageid)
+                        'is_current' => ($p->id == $this->pageid),
+                        'is_only_forward' => (!$this->canmanage && $this->navigation_mode === 'only_forward' && $index < $currentindex)
                     ];
                 }
                 $pagination['pages'] = $pagenumbers;
@@ -456,7 +529,10 @@ class page_view implements renderable, templatable {
             $hasaichat = true;
             
             // Load models associated with this page.
-            $pagemodels = $DB->get_records('harpiasurvey_page_models', ['pageid' => $this->pageid], '', 'modelid');
+            // Reuse $pagemodels if already loaded above, otherwise load it.
+            if (empty($pagemodels)) {
+                $pagemodels = $DB->get_records('harpiasurvey_page_models', ['pageid' => $this->pageid], '', 'modelid');
+            }
             $modelids = array_keys($pagemodels);
             $models = [];
             if (!empty($modelids)) {
@@ -473,8 +549,19 @@ class page_view implements renderable, templatable {
             }
             // Note: Chat will appear even without models (showing a warning message)
             
+            // Check if we have multiple models and should use tabbed interface (for both continuous and turns mode).
+            // Reuse $use_multi_model_tabs if already set above, otherwise calculate it.
+            if (!isset($use_multi_model_tabs)) {
+                $has_multiple_models = (count($models) > 1);
+                // Enable multi-model tabs for both continuous and turns mode when multiple models exist
+                $use_multi_model_tabs = $has_multiple_models;
+            }
+            
             // Load conversation history for this page (not tied to a question anymore).
+            // For multi-model tabs, we need to organize by modelid.
             $conversationhistory = [];
+            $conversationhistory_by_model = []; // For multi-model tabs.
+            
             if ($this->pageid && $USER->id) {
                 $messages = $DB->get_records('harpiasurvey_conversations', [
                     'pageid' => $this->pageid,
@@ -482,6 +569,11 @@ class page_view implements renderable, templatable {
                 ], 'timecreated ASC');
                 
                 foreach ($messages as $msg) {
+                    // Skip placeholder messages created when a new root conversation is started.
+                    if (trim($msg->content) === '[New conversation - send a message to start]') {
+                        continue;
+                    }
+                    
                     $roleobj = new \stdClass();
                     $roleobj->{$msg->role} = true;
                     
@@ -495,11 +587,187 @@ class page_view implements renderable, templatable {
                         ]),
                         'parentid' => $msg->parentid,
                         'turn_id' => $msg->turn_id,
+                        'modelid' => $msg->modelid ?? null,
                         'timecreated' => $msg->timecreated
                     ];
                     
-                    
                     $conversationhistory[] = $msgdata;
+                    
+                    // For multi-model tabs, organize by modelid.
+                    if ($use_multi_model_tabs && $msg->modelid) {
+                        if (!isset($conversationhistory_by_model[$msg->modelid])) {
+                            $conversationhistory_by_model[$msg->modelid] = [];
+                        }
+                        $conversationhistory_by_model[$msg->modelid][] = $msgdata;
+                    }
+                }
+            }
+            
+            // Prepare model tabs data for multi-model interface.
+            $model_tabs = [];
+            if ($use_multi_model_tabs) {
+                // Capture $this in a variable for use in closure.
+                $that = $this;
+                // Helper function to format a question for template.
+                $formatQuestion = function($question, $responses, $responsetimestamps) use ($DB, $that) {
+                    // Load question settings from JSON.
+                    $settings = [];
+                    if (!empty($question->settings)) {
+                        $settings = json_decode($question->settings, true) ?? [];
+                    }
+                    
+                    // Load saved response for this question.
+                    $savedresponse = $responses[$question->questionid] ?? null;
+                    
+                    // Get question options if it's a choice/select question.
+                    $options = [];
+                    $inputtype = 'radio';
+                    $ismultiplechoice = false;
+                    if (in_array($question->type, ['singlechoice', 'multiplechoice', 'select', 'likert'])) {
+                        $inputtype = ($question->type === 'singlechoice' || $question->type === 'select' || $question->type === 'likert') ? 'radio' : 'checkbox';
+                        $ismultiplechoice = ($question->type === 'multiplechoice');
+                        
+                        // For Likert, generate 1-5 options.
+                        if ($question->type === 'likert') {
+                            for ($i = 1; $i <= 5; $i++) {
+                                $isselected = ($savedresponse && (string)$i === $savedresponse);
+                                $options[] = [
+                                    'id' => $i,
+                                    'value' => (string)$i,
+                                    'isdefault' => $isselected,
+                                    'inputtype' => 'radio',
+                                    'questionid' => $question->questionid,
+                                    'nameattr' => 'question_' . $question->questionid,
+                                ];
+                            }
+                        } else {
+                            // For other types, load from database.
+                            $questionoptions = $DB->get_records('harpiasurvey_question_options', [
+                                'questionid' => $question->questionid
+                            ], 'sortorder ASC');
+                            $nameattr = 'question_' . $question->questionid;
+                            if ($ismultiplechoice) {
+                                $nameattr .= '[]';
+                            }
+                            foreach ($questionoptions as $opt) {
+                                $isselected = false;
+                                if ($savedresponse !== null) {
+                                    if ($ismultiplechoice) {
+                                        $savedvalues = json_decode($savedresponse, true);
+                                        if (is_array($savedvalues)) {
+                                            $isselected = in_array((string)$opt->id, array_map('strval', $savedvalues));
+                                        }
+                                    } else {
+                                        $isselected = ((string)$opt->id === (string)$savedresponse);
+                                    }
+                                } else {
+                                    $isselected = (bool)$opt->isdefault;
+                                }
+                                
+                                $options[] = [
+                                    'id' => $opt->id,
+                                    'value' => format_string($opt->value),
+                                    'isdefault' => $isselected,
+                                    'inputtype' => $inputtype,
+                                    'questionid' => $question->questionid,
+                                    'nameattr' => $nameattr,
+                                ];
+                            }
+                        }
+                    }
+                    
+                    // Number field settings.
+                    $numbersettings = [];
+                    if ($question->type === 'number') {
+                        $min = $settings['min'] ?? null;
+                        $max = $settings['max'] ?? null;
+                        $allownegatives = !empty($settings['allownegatives']);
+                        if (!$allownegatives && $min === null) {
+                            $min = 0;
+                        }
+                        $numbersettings = [
+                            'has_min' => $min !== null,
+                            'min_value' => $min,
+                            'has_max' => $max !== null,
+                            'max_value' => $max,
+                            'default' => $settings['default'] ?? null,
+                            'step' => ($settings['numbertype'] ?? 'integer') === 'integer' ? 1 : 0.01,
+                        ];
+                    }
+                    
+                    $savedtimestamp = $responsetimestamps[$question->questionid] ?? null;
+                    
+                    return [
+                        'id' => $question->questionid,
+                        'name' => format_string($question->name),
+                        'type' => $question->type,
+                        'description' => format_text($question->description, $question->descriptionformat, [
+                            'context' => $that->context,
+                            'noclean' => false,
+                            'overflowdiv' => true
+                        ]),
+                        'options' => $options,
+                        'has_options' => !empty($options),
+                        'is_multiplechoice' => $ismultiplechoice,
+                        'is_select' => ($question->type === 'select'),
+                        'is_likert' => ($question->type === 'likert'),
+                        'is_number' => ($question->type === 'number'),
+                        'numbersettings' => $numbersettings,
+                        'is_shorttext' => ($question->type === 'shorttext'),
+                        'is_longtext' => ($question->type === 'longtext'),
+                        'saved_response' => $savedresponse,
+                        'has_saved_response' => !empty($savedresponse),
+                        'saved_timestamp' => $savedtimestamp,
+                        'saved_datetime' => $savedtimestamp ? userdate($savedtimestamp, get_string('strftimedatetimeshort', 'langconfig')) : null,
+                        'cmid' => $that->cmid,
+                        'pageid' => $that->pageid,
+                    ];
+                };
+                
+                // Filter questions for each model.
+                foreach ($models as $model) {
+                    $modelhistory = $conversationhistory_by_model[$model['id']] ?? [];
+                    
+                    // Filter questions for this model based on model visibility rules.
+                    $modelquestions = [];
+                    foreach ($this->questions as $question) {
+                        if (!$question->enabled) {
+                            continue;
+                        }
+                        
+                        // Check model visibility rules.
+                        $showonlymodel = isset($question->show_only_model) && $question->show_only_model !== null ? (int)$question->show_only_model : null;
+                        $hideonmodel = isset($question->hide_on_model) && $question->hide_on_model !== null ? (int)$question->hide_on_model : null;
+                        
+                        // If show_only_model is set, question only shows for that model.
+                        if ($showonlymodel !== null) {
+                            if ($showonlymodel != $model['id']) {
+                                continue; // Skip this question for this model.
+                            }
+                        }
+                        
+                        // If hide_on_model is set, hide question for that model.
+                        if ($hideonmodel !== null) {
+                            if ($hideonmodel == $model['id']) {
+                                continue; // Skip this question for this model.
+                            }
+                        }
+                        
+                        // Format and add question.
+                        $modelquestions[] = $formatQuestion($question, $responses, $responsetimestamps);
+                    }
+                    
+                    $model_tabs[] = [
+                        'id' => $model['id'],
+                        'name' => $model['name'],
+                        'model' => $model['model'],
+                        'conversation_history' => $modelhistory,
+                        'has_history' => !empty($modelhistory),
+                        'questions' => $modelquestions,
+                        'has_questions' => !empty($modelquestions),
+                        'cmid' => $that->cmid,
+                        'pageid' => $that->pageid
+                    ];
                 }
             }
             
@@ -512,13 +780,21 @@ class page_view implements renderable, templatable {
             $aichatdata = [
                 'models' => $models,
                 'has_models' => !empty($models),
+                'has_multiple_models' => $has_multiple_models,
+                'use_multi_model_tabs' => $use_multi_model_tabs,
+                'model_tabs' => $model_tabs,
                 'behavior' => $pagebehavior,
                 'is_turns_mode' => $isturnsmode, // Explicit boolean.
+                'show_sidebar' => ($isturnsmode || $pagebehavior === 'continuous'), // Show sidebar for turns and continuous mode.
                 'conversation_history' => $conversationhistory,
                 'has_history' => !empty($conversationhistory),
                 'turn_evaluation_questions' => $turnevaluationquestions,
                 'has_turn_evaluation_questions' => !empty($turnevaluationquestions),
-                'turn_evaluation_questions_json' => $turnevaluationquestionsjson
+                'turn_evaluation_questions_json' => $turnevaluationquestionsjson,
+                'min_turns' => $this->page->min_turns ?? null,
+                'has_min_turns' => ($this->page->min_turns !== null),
+                'max_turns' => $this->page->max_turns ?? null,
+                'has_max_turns' => ($this->page->max_turns !== null)
             ];
         } else {
             // Ensure aichatdata is always an array, even if not an aichat page
@@ -535,6 +811,117 @@ class page_view implements renderable, templatable {
             ];
         }
 
+        // Load subpages (only for aichat pages with turns mode).
+        $subpageslist = [];
+        if ($hasaichat && $this->page->behavior === 'turns') {
+            $subpages = $DB->get_records('harpiasurvey_subpages', ['pageid' => $this->pageid, 'available' => 1], 'sortorder ASC');
+            foreach ($subpages as $subpage) {
+                // Format description.
+                $subpagedescription = format_text($subpage->description, $subpage->descriptionformat, [
+                    'context' => $this->context,
+                    'noclean' => false,
+                    'overflowdiv' => true
+                ]);
+                
+                // Load questions for this subpage.
+                $subpagequestions = [];
+                $subpagequestionrecords = $DB->get_records_sql(
+                    "SELECT sq.id, sq.subpageid, sq.questionid, sq.enabled, sq.sortorder,
+                            sq.turn_visibility_type, sq.turn_number,
+                            q.id as qid, q.name, q.type, q.description, q.descriptionformat, q.settings
+                       FROM {harpiasurvey_subpage_questions} sq
+                       JOIN {harpiasurvey_questions} q ON q.id = sq.questionid
+                      WHERE sq.subpageid = :subpageid
+                        AND sq.enabled = 1
+                      ORDER BY sq.sortorder ASC",
+                    ['subpageid' => $subpage->id]
+                );
+                
+                // Process subpage questions similar to page questions.
+                foreach ($subpagequestionrecords as $sq) {
+                    // Load question settings from JSON.
+                    $settings = [];
+                    if (!empty($sq->settings)) {
+                        $settings = json_decode($sq->settings, true) ?? [];
+                    }
+                    
+                    // Load saved response for this question.
+                    $savedresponse = null;
+                    if (isset($responses[$sq->questionid])) {
+                        $savedresponse = $responses[$sq->questionid];
+                    }
+                    
+                    // Get question options if it's a choice/select question.
+                    $options = [];
+                    $inputtype = 'radio';
+                    $ismultiplechoice = false;
+                    if (in_array($sq->type, ['singlechoice', 'multiplechoice', 'select', 'likert'])) {
+                        $options = $DB->get_records('harpiasurvey_question_options', ['questionid' => $sq->questionid], 'sortorder ASC');
+                        if ($sq->type === 'multiplechoice') {
+                            $inputtype = 'checkbox';
+                            $ismultiplechoice = true;
+                        }
+                    }
+                    
+                    // Format question description.
+                    $questiondescription = format_text($sq->description, $sq->descriptionformat, [
+                        'context' => $this->context,
+                        'noclean' => false,
+                        'overflowdiv' => true
+                    ]);
+                    
+                    // Prepare options for template.
+                    $optionslist = [];
+                    foreach ($options as $opt) {
+                        $optionslist[] = [
+                            'id' => $opt->id,
+                            'value' => format_string($opt->value),
+                            'isdefault' => (bool)$opt->isdefault,
+                        ];
+                    }
+                    
+                    // Determine question type flags.
+                    $isnumber = ($sq->type === 'number');
+                    $isshorttext = ($sq->type === 'shorttext');
+                    $islongtext = ($sq->type === 'longtext');
+                    $islikert = ($sq->type === 'likert');
+                    
+                    $subpagequestions[] = [
+                        'id' => $sq->qid,
+                        'questionid' => $sq->questionid,
+                        'name' => format_string($sq->name),
+                        'type' => $sq->type,
+                        'description' => $questiondescription,
+                        'has_description' => !empty(trim(strip_tags($questiondescription))),
+                        'options' => $optionslist,
+                        'has_options' => !empty($optionslist),
+                        'is_select' => ($sq->type === 'select'),
+                        'is_likert' => $islikert,
+                        'is_multiple_choice' => $ismultiplechoice,
+                        'input_type' => $inputtype,
+                        'is_number' => $isnumber,
+                        'is_shorttext' => $isshorttext,
+                        'is_longtext' => $islongtext,
+                        'saved_response' => $savedresponse,
+                        'has_saved_response' => !empty($savedresponse),
+                        'settings' => $settings,
+                        'turn_visibility_type' => $sq->turn_visibility_type ?? 'all_turns',
+                        'turn_number' => $sq->turn_number,
+                    ];
+                }
+                
+                $subpageslist[] = [
+                    'id' => $subpage->id,
+                    'title' => format_string($subpage->title),
+                    'description' => $subpagedescription,
+                    'has_description' => !empty(trim(strip_tags($subpagedescription))),
+                    'turn_visibility_type' => $subpage->turn_visibility_type,
+                    'turn_number' => $subpage->turn_number,
+                    'questions' => $subpagequestions,
+                    'has_questions' => !empty($subpagequestions),
+                ];
+            }
+        }
 
         return [
             'title' => format_string($this->page->title),
@@ -542,6 +929,8 @@ class page_view implements renderable, templatable {
             'has_description' => $hasdescription,
             'editurl' => $this->editurl,
             'has_editurl' => !empty($this->editurl),
+            'deleteurl' => $this->deleteurl,
+            'has_deleteurl' => !empty($this->deleteurl),
             'canmanage' => $this->canmanage,
             'questions' => $questionslist,
             'has_questions' => !empty($questionslist),
@@ -550,11 +939,18 @@ class page_view implements renderable, templatable {
             'has_turn_evaluation_questions' => !empty($turnevaluationquestions),
             'pagination' => $pagination,
             'has_pagination' => !empty($pagination),
+            'navigation_mode' => $this->navigation_mode,
+            'is_only_forward' => (!$this->canmanage && $this->navigation_mode === 'only_forward'),
+            'canmanage' => $this->canmanage,
             'wwwroot' => $CFG->wwwroot,
             'cmid' => $this->cmid,
             'pageid' => $this->pageid,
             'is_aichat_page' => $hasaichat,
             'aichat' => $aichatdata,
+            'subpages' => $subpageslist,
+            'has_subpages' => !empty($subpageslist),
+            'initial_turn' => $this->initial_turn,
+            'has_initial_turn' => ($this->initial_turn !== null),
         ];
     }
 }

@@ -1,0 +1,47 @@
+{{!
+    This file is part of Moodle - https://moodle.org/
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+}}
+{{!
+    @template mod_harpiasurvey/turn_separator
+
+    Template for visual separator between conversation turns.
+
+    Context variables required for this template:
+    * turn_id - The turn ID number
+    * branch_label - Optional label for this branch (if it's a branch from another turn)
+    * is_branch - Whether this turn is a branch from another turn
+
+    Example context (json):
+    {
+        "turn_id": 2,
+        "branch_label": "Path A",
+        "is_branch": true
+    }
+}}
+<div class="turn-separator my-4" data-turn-separator="{{turn_id}}" data-turn-id="{{turn_id}}" data-collapsed="false">
+    <div class="d-flex align-items-center justify-content-between">
+        <hr class="flex-grow-1" style="border-color: #6c757d; border-width: 2px;">
+        <div class="px-3 d-flex align-items-center gap-2">
+            <span class="badge badge-secondary badge-lg" style="font-size: 0.9rem; padding: 0.5rem 1rem;">
+                <i class="fa fa-exchange-alt" aria-hidden="true"></i>
+                {{#str}}turn, mod_harpiasurvey{{/str}} {{#turn_number}}{{turn_number}}{{/turn_number}}{{^turn_number}}{{turn_id}}{{/turn_number}}
+            </span>
+            {{#is_previous_turn}}
+            <button type="button" class="btn btn-sm btn-outline-secondary toggle-turn-btn" data-turn-id="{{turn_id}}" data-pageid="{{pageid}}" title="Expand/Collapse turn" style="padding: 0.25rem 0.5rem;">
+                <i class="fa fa-chevron-down toggle-turn-icon" aria-hidden="true"></i>
+            </button>
+            {{/is_previous_turn}}
+        </div>
+        <hr class="flex-grow-1" style="border-color: #6c757d; border-width: 2px;">
+    </div>
+</div>

@@ -53,6 +53,7 @@
         <FIELD NAME="hascrossvalidation" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Whether the experiment has cross-validation (0 = no, 1 = yes)."/>
         <FIELD NAME="published" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Whether the experiment is published (0 = draft, 1 = published)."/>
         <FIELD NAME="status" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="draft" SEQUENCE="false" COMMENT="Status: draft, running, finished."/>
+        <FIELD NAME="navigation_mode" TYPE="char" LENGTH="50" NOTNULL="false" DEFAULT="free_navigation" SEQUENCE="false" COMMENT="Navigation flow mode: free_navigation (can go back/forward) or only_forward (can only go forward, must answer all questions)."/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Timestamp of when the experiment was created."/>
         <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Timestamp of when the experiment was last modified."/>
       </FIELDS>
@@ -102,6 +103,8 @@
         <FIELD NAME="descriptionformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Format of the description field."/>
         <FIELD NAME="type" TYPE="char" LENGTH="50" NOTNULL="false" SEQUENCE="false" COMMENT="Type of page (opening, demographic, interaction, feedback, aichat)."/>
         <FIELD NAME="behavior" TYPE="char" LENGTH="50" NOTNULL="false" DEFAULT="continuous" SEQUENCE="false" COMMENT="Behavior mode: continuous (default), turns (turn-based navigation), multi_model (future)."/>
+        <FIELD NAME="min_turns" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Minimum number of turns required (NULL = no minimum, only for turns behavior)."/>
+        <FIELD NAME="max_turns" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Maximum number of turns allowed (NULL = no maximum, only for turns behavior)."/>
         <FIELD NAME="available" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="Whether the page is available (0 = disabled, 1 = enabled)."/>
         <FIELD NAME="sortorder" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Sort order for displaying pages."/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Timestamp of when the page was created."/>
@@ -111,6 +114,48 @@
         <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
         <KEY NAME="fk_experiment" TYPE="foreign" FIELDS="experimentid" REFTABLE="harpiasurvey_experiments" REFFIELDS="id"/>
       </KEYS>
+    </TABLE>
+    <TABLE NAME="harpiasurvey_subpages" COMMENT="Stores subpages within a parent page (only for aichat pages with turns mode).">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="pageid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="ID of the parent page."/>
+        <FIELD NAME="title" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false" COMMENT="Title of the subpage."/>
+        <FIELD NAME="description" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Description/content of the subpage."/>
+        <FIELD NAME="descriptionformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Format of the description field."/>
+        <FIELD NAME="turn_visibility_type" TYPE="char" LENGTH="50" NOTNULL="true" DEFAULT="all_turns" SEQUENCE="false" COMMENT="Visibility type: first_turn, specific_turn, all_turns."/>
+        <FIELD NAME="turn_number" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Turn number for specific_turn visibility (NULL for other types)."/>
+        <FIELD NAME="available" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="Whether the subpage is available (0 = disabled, 1 = enabled)."/>
+        <FIELD NAME="sortorder" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Sort order for displaying subpages."/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Timestamp of when the subpage was created."/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Timestamp of when the subpage was last modified."/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_page" TYPE="foreign" FIELDS="pageid" REFTABLE="harpiasurvey_pages" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="idx_page_sortorder" UNIQUE="false" FIELDS="pageid, sortorder" COMMENT="Index for ordering subpages within a page."/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="harpiasurvey_subpage_questions" COMMENT="Many-to-many relationship between subpages and questions.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="subpageid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="ID of the subpage."/>
+        <FIELD NAME="questionid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="ID of the question."/>
+        <FIELD NAME="enabled" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="Whether the question is enabled on this subpage (0 = disabled, 1 = enabled)."/>
+        <FIELD NAME="turn_visibility_type" TYPE="char" LENGTH="50" NOTNULL="true" DEFAULT="all_turns" SEQUENCE="false" COMMENT="Visibility type: first_turn, specific_turn, all_turns."/>
+        <FIELD NAME="turn_number" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Turn number for specific_turn visibility (NULL for other types)."/>
+        <FIELD NAME="sortorder" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Sort order for displaying questions on the subpage."/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Timestamp of when the association was created."/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_subpage" TYPE="foreign" FIELDS="subpageid" REFTABLE="harpiasurvey_subpages" REFFIELDS="id"/>
+        <KEY NAME="fk_question" TYPE="foreign" FIELDS="questionid" REFTABLE="harpiasurvey_questions" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="unique_subpage_question" UNIQUE="true" FIELDS="subpageid, questionid" COMMENT="Ensure each subpage-question pair is unique."/>
+      </INDEXES>
     </TABLE>
     <TABLE NAME="harpiasurvey_questions" COMMENT="Stores questions that can be reused across experiments.">
       <FIELDS>
@@ -153,6 +198,10 @@
         <FIELD NAME="enabled" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="Whether the question is enabled on this page (0 = disabled, 1 = enabled)."/>
         <FIELD NAME="sortorder" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Sort order for displaying questions on the page."/>
         <FIELD NAME="min_turn" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Minimum turn number for this question to appear (NULL or 1 = appears from first turn, 2 = from second turn, etc.). Only used for aichat pages with turns mode."/>
+        <FIELD NAME="show_only_turn" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Show question only on this specific turn number (NULL = show on all turns, N = show only on turn N). Only used for aichat pages with turns mode."/>
+        <FIELD NAME="hide_on_turn" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Hide question on this specific turn number (NULL = no hiding, N = hide on turn N). Only used for aichat pages with turns mode."/>
+        <FIELD NAME="show_only_model" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Show question only for this specific model ID (NULL = show for all models, N = show only for model N). Only used for aichat pages with multi-model mode."/>
+        <FIELD NAME="hide_on_model" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Hide question for this specific model ID (NULL = no hiding, N = hide for model N). Only used for aichat pages with multi-model mode."/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Timestamp of when the association was created."/>
       </FIELDS>
       <KEYS>
@@ -227,6 +276,26 @@
       </KEYS>
       <INDEXES>
         <INDEX NAME="unique_user_turn" UNIQUE="true" FIELDS="userid, pageid, turn_id" COMMENT="Ensure each user can only evaluate each turn once."/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="harpiasurvey_turn_branches" COMMENT="Stores the tree structure of conversation turns, allowing branches from a single turn.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="pageid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="ID of the page."/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="ID of the user who owns this conversation branch."/>
+        <FIELD NAME="parent_turn_id" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="ID of the parent turn (NULL for root turn)."/>
+        <FIELD NAME="child_turn_id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="ID of the child turn (the branch)."/>
+        <FIELD NAME="branch_label" TYPE="char" LENGTH="255" NOTNULL="false" SEQUENCE="false" COMMENT="Optional label/description for this branch (e.g., 'Path A', 'Response 1')."/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Timestamp of when the branch was created."/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_page" TYPE="foreign" FIELDS="pageid" REFTABLE="harpiasurvey_pages" REFFIELDS="id"/>
+        <KEY NAME="fk_user" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="idx_user_page_parent" UNIQUE="false" FIELDS="userid, pageid, parent_turn_id" COMMENT="Index for finding all branches from a parent turn."/>
+        <INDEX NAME="unique_user_turn_branch" UNIQUE="true" FIELDS="userid, pageid, child_turn_id" COMMENT="Ensure each turn can only have one parent branch relationship."/>
       </INDEXES>
     </TABLE>
   </TABLES>

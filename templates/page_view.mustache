@@ -32,11 +32,21 @@
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h3 class="mb-0">{{title}}</h3>
         {{#canmanage}}
-            {{#has_editurl}}
-                <a href="{{editurl}}" class="btn btn-sm btn-outline-primary">
-                    <i class="fa fa-edit" aria-hidden="true"></i> {{#str}}edit, moodle{{/str}}
-                </a>
-            {{/has_editurl}}
+            <div class="d-flex gap-2">
+                {{#has_editurl}}
+                    <a href="{{editurl}}" class="btn btn-sm btn-outline-primary">
+                        <i class="fa fa-edit" aria-hidden="true"></i> {{#str}}edit, moodle{{/str}}
+                    </a>
+                {{/has_editurl}}
+                {{#has_deleteurl}}
+                    <a href="{{deleteurl}}" 
+                       class="btn btn-sm btn-outline-danger" 
+                       title="{{#str}}delete, moodle{{/str}}"
+                       onclick="return confirm('{{#str}}confirmdelete, core{{/str}}');">
+                        <i class="fa fa-trash" aria-hidden="true"></i> {{#str}}delete, moodle{{/str}}
+                    </a>
+                {{/has_deleteurl}}
+            </div>
         {{/canmanage}}
     </div>
     
@@ -48,7 +58,21 @@
     
     {{! AI Chat interface (rendered at page level, not as a question) - appears before questions }}
     {{#is_aichat_page}}
-        <div class="ai-conversation-container mb-4 mt-4" data-cmid="{{cmid}}" data-pageid="{{pageid}}" data-behavior="{{aichat.behavior}}" {{#aichat.has_models}}data-models="{{#aichat.models}}{{id}}{{^@last}},{{/@last}}{{/aichat.models}}"{{/aichat.has_models}}>
+        {{#aichat.use_multi_model_tabs}}
+            {{! Multi-model tabbed interface }}
+            {{> mod_harpiasurvey/multi_model_chat }}
+        {{/aichat.use_multi_model_tabs}}
+        {{^aichat.use_multi_model_tabs}}
+            {{! Single model or turns mode interface }}
+            <div class="row">
+                {{! Conversation tree sidebar (for turns mode and continuous mode) }}
+                {{#aichat.show_sidebar}}
+                    <div class="col-md-3 conversation-tree-wrapper" id="conversation-tree-wrapper-{{pageid}}" style="min-width: 280px; max-width: 350px;">
+                        {{> mod_harpiasurvey/conversation_tree }}
+                    </div>
+                {{/aichat.show_sidebar}}
+                <div class="{{#aichat.show_sidebar}}col-md-9{{/aichat.show_sidebar}}{{^aichat.show_sidebar}}col-12{{/aichat.show_sidebar}}">
+            <div class="ai-conversation-container mb-4 mt-4" data-cmid="{{cmid}}" data-pageid="{{pageid}}" data-behavior="{{aichat.behavior}}" {{#aichat.has_models}}data-models="{{#aichat.models}}{{id}}{{^@last}},{{/@last}}{{/aichat.models}}"{{/aichat.has_models}} {{#aichat.has_min_turns}}data-min-turns="{{aichat.min_turns}}"{{/aichat.has_min_turns}} {{#aichat.has_max_turns}}data-max-turns="{{aichat.max_turns}}"{{/aichat.has_max_turns}}>
             {{#aichat.has_turn_evaluation_questions}}
                 <script type="application/json" id="turn-evaluation-questions-data-{{pageid}}">{{{aichat.turn_evaluation_questions_json}}}</script>
             {{/aichat.has_turn_evaluation_questions}}
@@ -71,33 +95,23 @@
             {{! Turn navigation controls (only for turns mode) }}
             {{#aichat.is_turns_mode}}
                 <div class="turn-navigation mb-2 d-flex justify-content-between align-items-center">
-                    <div class="turn-info">
+                    <div class="turn-info d-flex align-items-center gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-info toggle-tree-btn" data-pageid="{{pageid}}" title="{{#str}}showconversationtree, mod_harpiasurvey{{/str}}">
+                            <i class="fa fa-sitemap" aria-hidden="true"></i>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary toggle-previous-messages-btn" data-pageid="{{pageid}}" title="{{#str}}togglepreviousmessages, mod_harpiasurvey{{/str}}">
+                            <i class="fa fa-history" aria-hidden="true"></i> {{#str}}showprevious, mod_harpiasurvey{{/str}}
+                        </button>
                         <span class="badge badge-info" id="current-turn-badge-{{pageid}}">
-                            {{#str}}turn, mod_harpiasurvey{{/str}}: <span id="current-turn-number-{{pageid}}">1</span>
+                            <span id="current-turn-number-{{pageid}}">Turno 1</span>
                         </span>
                     </div>
-                    <div class="turn-controls">
-                        <button type="button" class="btn btn-sm btn-outline-secondary prev-turn-btn" data-pageid="{{pageid}}" style="display: none;">
-                            <i class="fa fa-chevron-left"></i> {{#str}}previousturn, mod_harpiasurvey{{/str}}
-                        </button>
-                        <button type="button" class="btn btn-sm btn-primary next-turn-btn" data-pageid="{{pageid}}" data-cmid="{{cmid}}">
-                            {{#str}}createnextturn, mod_harpiasurvey{{/str}} <i class="fa fa-chevron-right"></i>
-                        </button>
-                    </div>
                 </div>
             {{/aichat.is_turns_mode}}
             
-            {{! Show previous messages toggle (only for turns mode) }}
-            {{#aichat.is_turns_mode}}
-                <div class="mb-2" id="previous-messages-toggle-{{pageid}}" style="display: none;">
-                    <button type="button" class="btn btn-sm btn-outline-secondary show-previous-messages-btn" data-pageid="{{pageid}}">
-                        <i class="fa fa-chevron-down"></i> {{#str}}showpreviousmessages, mod_harpiasurvey{{/str}}
-                    </button>
-                </div>
-            {{/aichat.is_turns_mode}}
             
             {{! Chat messages area }}
-            <div class="chat-messages border rounded p-3 mb-2" id="chat-messages-page-{{pageid}}" style="max-height: 400px; overflow-y: auto; background-color: #f8f9fa;">
+            <div class="chat-messages border rounded p-3 mb-2" id="chat-messages-page-{{pageid}}" style="max-height: 600px; overflow-y: auto; background-color: #f8f9fa;">
                 {{#aichat.has_history}}
                     {{#aichat.conversation_history}}
                         {{#role.user}}
@@ -115,6 +129,7 @@
                 {{/aichat.has_history}}
             </div>
             
+            
             {{! Input area }}
             <div class="input-group">
                 <textarea class="form-control chat-input" id="chat-input-page-{{pageid}}" rows="2" placeholder="{{#str}}typeyourmessage, mod_harpiasurvey{{/str}}"></textarea>
@@ -125,6 +140,11 @@
             {{#aichat.is_turns_mode}}
                 <div class="mt-2 text-muted small" id="turn-locked-message-{{pageid}}" style="display: none;">
                     <i class="fa fa-lock"></i> {{#str}}turnlocked, mod_harpiasurvey{{/str}}
+                </div>
+                <div class="mt-2" id="direct-branch-container-{{pageid}}" style="display: none;">
+                    <button type="button" class="btn btn-sm btn-success create-direct-branch-btn" data-pageid="{{pageid}}" data-cmid="{{cmid}}">
+                        <i class="fa fa-code-branch" aria-hidden="true"></i> {{#str}}createdirectbranch, mod_harpiasurvey{{/str}}
+                    </button>
                 </div>
             {{/aichat.is_turns_mode}}
             
@@ -139,7 +159,10 @@
                     {{! Questions will be dynamically loaded here based on current turn }}
                 </div>
             {{/aichat.is_turns_mode}}
+            </div>
         </div>
+    </div>
+        {{/aichat.use_multi_model_tabs}}
     {{/is_aichat_page}}
     
     {{#has_questions}}
@@ -234,7 +257,7 @@
     
     {{! Pagination navigation }}
     {{#has_pagination}}
-        <nav aria-label="Page navigation" class="mt-4">
+        <nav aria-label="Page navigation" class="mt-4" data-navigation-mode="{{navigation_mode}}" data-canmanage="{{canmanage}}">
             <ul class="pagination justify-content-center">
                 {{#pagination.has_prev}}
                     <li class="page-item">
@@ -252,14 +275,24 @@
                 {{/pagination.has_prev}}
                 
                 {{#pagination.pages}}
-                    <li class="page-item{{#is_current}} active{{/is_current}}">
+                    <li class="page-item{{#is_current}} active{{/is_current}}{{^is_current}}{{#is_only_forward}} disabled{{/is_only_forward}}{{/is_current}}">
+                        {{#is_current}}
+                            <a class="page-link" href="{{url}}">{{number}}</a>
+                        {{/is_current}}
+                        {{^is_current}}
+                            {{#is_only_forward}}
+                                <span class="page-link">{{number}}</span>
+                            {{/is_only_forward}}
+                            {{^is_only_forward}}
                         <a class="page-link" href="{{url}}">{{number}}</a>
+                            {{/is_only_forward}}
+                        {{/is_current}}
                     </li>
                 {{/pagination.pages}}
                 
                 {{#pagination.has_next}}
                     <li class="page-item">
-                        <a class="page-link" href="{{pagination.next_url}}" aria-label="Next">
+                        <a class="page-link navigation-next-link" href="{{pagination.next_url}}" aria-label="Next" data-pageid="{{pageid}}">
                             <span aria-hidden="true">{{#str}}next, moodle{{/str}} &raquo;</span>
                         </a>
                     </li>
@@ -274,5 +307,98 @@
             </ul>
         </nav>
     {{/has_pagination}}
+    
+    {{#has_subpages}}
+        <div class="subpages-container mt-4" id="subpages-container-{{pageid}}">
+            {{#subpages}}
+                <div class="subpage-item mb-4 border rounded p-3" 
+                     data-subpage-id="{{id}}"
+                     data-visibility-type="{{turn_visibility_type}}"
+                     {{#turn_number}}data-turn-number="{{turn_number}}"{{/turn_number}}
+                     style="display: none;">
+                    <h5>{{title}}</h5>
+                    {{#has_description}}
+                        <div class="subpage-description mb-3">
+                            {{{description}}}
+                        </div>
+                    {{/has_description}}
+                    {{#has_questions}}
+                        <div class="subpage-questions">
+                            {{#questions}}
+                                <div class="question-item mb-4" 
+                                     data-questionid="{{id}}" 
+                                     data-questiontype="{{type}}"
+                                     data-visibility-type="{{turn_visibility_type}}"
+                                     {{#turn_number}}data-turn-number="{{turn_number}}"{{/turn_number}}
+                                     style="display: none;">
+                                    <h5>{{name}}</h5>
+                                    <div class="question-description mb-2">
+                                        {{{description}}}
+                                    </div>
+                                    
+                                    {{#has_options}}
+                                        {{#is_select}}
+                                            <select class="form-control" name="question_{{id}}" id="question_{{id}}" {{#has_saved_response}}data-saved-value="{{saved_response}}"{{/has_saved_response}}>
+                                                <option value="">{{#str}}noselection, mod_harpiasurvey{{/str}}</option>
+                                                {{#options}}
+                                                    <option value="{{id}}" {{#isdefault}}selected{{/isdefault}}>{{value}}</option>
+                                                {{/options}}
+                                            </select>
+                                        {{/is_select}}
+                                        {{^is_select}}
+                                            {{#is_likert}}
+                                                <div class="likert-scale d-flex justify-content-between align-items-center">
+                                                    {{#options}}
+                                                        <div class="likert-option text-center">
+                                                            <input class="form-check-input" type="radio" 
+                                                                   name="question_{{id}}" id="option_{{id}}" value="{{id}}" {{#isdefault}}checked{{/isdefault}}>
+                                                            <label class="form-check-label d-block mt-1" for="option_{{id}}">
+                                                                {{value}}
+                                                            </label>
+                                                        </div>
+                                                    {{/options}}
+                                                </div>
+                                            {{/is_likert}}
+                                            {{^is_likert}}
+                                                <div class="question-options">
+                                                    {{#options}}
+                                                        <div class="form-check">
+                                                            <input class="form-check-input" type="{{input_type}}" 
+                                                                   name="question_{{id}}" id="option_{{id}}" value="{{id}}" {{#isdefault}}checked{{/isdefault}}>
+                                                            <label class="form-check-label" for="option_{{id}}">
+                                                                {{value}}
+                                                            </label>
+                                                        </div>
+                                                    {{/options}}
+                                                </div>
+                                            {{/is_likert}}
+                                        {{/is_select}}
+                                    {{/has_options}}
+                                    {{^has_options}}
+                                        {{#is_number}}
+                                            <input type="number" class="form-control" name="question_{{id}}" id="question_{{id}}"
+                                                   {{#has_saved_response}}value="{{saved_response}}"{{/has_saved_response}}>
+                                        {{/is_number}}
+                                        {{#is_shorttext}}
+                                            <input type="text" class="form-control" name="question_{{id}}" id="question_{{id}}" {{#has_saved_response}}value="{{saved_response}}"{{/has_saved_response}}>
+                                        {{/is_shorttext}}
+                                        {{#is_longtext}}
+                                            <textarea class="form-control" name="question_{{id}}" id="question_{{id}}" rows="4">{{#has_saved_response}}{{saved_response}}{{/has_saved_response}}</textarea>
+                                        {{/is_longtext}}
+                                    {{/has_options}}
+                                    
+                                    {{#has_saved_response}}
+                                        <div class="mt-2 small text-muted saved-response-message" data-questionid="{{id}}">
+                                            <i class="fa fa-check-circle" aria-hidden="true"></i> {{#str}}saved, mod_harpiasurvey{{/str}}
+                                        </div>
+                                    {{/has_saved_response}}
+                                </div>
+                            {{/questions}}
+                        </div>
+                    {{/has_questions}}
+                </div>
+            {{/subpages}}
+        </div>
+    {{/has_subpages}}
 </div>
 

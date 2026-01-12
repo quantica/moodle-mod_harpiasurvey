@@ -1,0 +1,125 @@
+{{!
+    This file is part of Moodle - https://moodle.org/
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+}}
+{{!
+    @template mod_harpiasurvey/subpage_view
+
+    Template for viewing a subpage.
+
+    Context variables required for this template:
+    * id - Subpage ID
+    * title - The subpage title
+    * description - The rendered subpage description/content
+    * turn_visibility_type - Visibility type (all_turns, first_turn, specific_turn)
+    * turn_number - Turn number for specific_turn visibility
+    * questions - Array of questions for this subpage
+    * has_questions - Whether subpage has questions
+
+    Example context (json):
+    {
+        "id": 1,
+        "title": "Evaluation Questions",
+        "description": "<p>Please answer the following questions...</p>",
+        "turn_visibility_type": "specific_turn",
+        "turn_number": 3,
+        "questions": [],
+        "has_questions": false
+    }
+}}
+<div class="subpage-item mb-4 border rounded p-3" 
+     data-subpage-id="{{id}}"
+     data-visibility-type="{{turn_visibility_type}}"
+     {{#turn_number}}data-turn-number="{{turn_number}}"{{/turn_number}}
+     style="display: none;">
+    <h5>{{title}}</h5>
+    {{#has_description}}
+        <div class="subpage-description mb-3">
+            {{{description}}}
+        </div>
+    {{/has_description}}
+    {{#has_questions}}
+        <div class="subpage-questions">
+            {{#questions}}
+                <div class="question-item mb-4" 
+                     data-questionid="{{id}}" 
+                     data-questiontype="{{type}}"
+                     data-visibility-type="{{turn_visibility_type}}"
+                     {{#turn_number}}data-turn-number="{{turn_number}}"{{/turn_number}}
+                     style="display: none;">
+                    <h5>{{name}}</h5>
+                    <div class="question-description mb-2">
+                        {{{description}}}
+                    </div>
+                    
+                    {{#has_options}}
+                        {{#is_select}}
+                            <select class="form-control" name="question_{{id}}" id="question_{{id}}" {{#has_saved_response}}data-saved-value="{{saved_response}}"{{/has_saved_response}}>
+                                <option value="">{{#str}}noselection, mod_harpiasurvey{{/str}}</option>
+                                {{#options}}
+                                    <option value="{{id}}" {{#isdefault}}selected{{/isdefault}}>{{value}}</option>
+                                {{/options}}
+                            </select>
+                        {{/is_select}}
+                        {{^is_select}}
+                            {{#is_likert}}
+                                <div class="likert-scale d-flex justify-content-between align-items-center">
+                                    {{#options}}
+                                        <div class="likert-option text-center">
+                                            <input class="form-check-input" type="radio" 
+                                                   name="question_{{id}}" id="option_{{id}}" value="{{id}}" {{#isdefault}}checked{{/isdefault}}>
+                                            <label class="form-check-label d-block mt-1" for="option_{{id}}">
+                                                {{value}}
+                                            </label>
+                                        </div>
+                                    {{/options}}
+                                </div>
+                            {{/is_likert}}
+                            {{^is_likert}}
+                                <div class="question-options">
+                                    {{#options}}
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="{{input_type}}" 
+                                                   name="question_{{id}}" id="option_{{id}}" value="{{id}}" {{#isdefault}}checked{{/isdefault}}>
+                                            <label class="form-check-label" for="option_{{id}}">
+                                                {{value}}
+                                            </label>
+                                        </div>
+                                    {{/options}}
+                                </div>
+                            {{/is_likert}}
+                        {{/is_select}}
+                    {{/has_options}}
+                    {{^has_options}}
+                        {{#is_number}}
+                            <input type="number" class="form-control" name="question_{{id}}" id="question_{{id}}"
+                                   {{#has_saved_response}}value="{{saved_response}}"{{/has_saved_response}}>
+                        {{/is_number}}
+                        {{#is_shorttext}}
+                            <input type="text" class="form-control" name="question_{{id}}" id="question_{{id}}" {{#has_saved_response}}value="{{saved_response}}"{{/has_saved_response}}>
+                        {{/is_shorttext}}
+                        {{#is_longtext}}
+                            <textarea class="form-control" name="question_{{id}}" id="question_{{id}}" rows="4">{{#has_saved_response}}{{saved_response}}{{/has_saved_response}}</textarea>
+                        {{/is_longtext}}
+                    {{/has_options}}
+                    
+                    {{#has_saved_response}}
+                        <div class="mt-2 small text-muted saved-response-message" data-questionid="{{id}}">
+                            <i class="fa fa-check-circle" aria-hidden="true"></i> {{#str}}saved, mod_harpiasurvey{{/str}}
+                        </div>
+                    {{/has_saved_response}}
+                </div>
+            {{/questions}}
+        </div>
+    {{/has_questions}}
+</div>
+

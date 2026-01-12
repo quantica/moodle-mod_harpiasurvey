@@ -213,6 +213,20 @@ class experiment extends \moodleform {
             $mform->setDefault('available', 1);
         }
 
+        // Navigation mode field (dropdown).
+        $navigationoptions = [
+            'free_navigation' => get_string('navigationmodefreenavigation', 'mod_harpiasurvey'),
+            'only_forward' => get_string('navigationmodeonlyforward', 'mod_harpiasurvey'),
+        ];
+        $mform->addElement('select', 'navigation_mode', get_string('navigationmode', 'mod_harpiasurvey'), $navigationoptions);
+        $mform->addHelpButton('navigation_mode', 'navigationmode', 'mod_harpiasurvey');
+        $mform->setType('navigation_mode', PARAM_ALPHANUMEXT);
+        if (isset($this->_customdata->navigation_mode)) {
+            $mform->setDefault('navigation_mode', $this->_customdata->navigation_mode);
+        } else {
+            $mform->setDefault('navigation_mode', 'free_navigation');
+        }
+
         // Add action buttons.
         $this->add_action_buttons(true, get_string('continue', 'mod_harpiasurvey') . ' >');
     }

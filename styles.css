@@ -1,5 +1,95 @@
 /* Harpia Survey Module Styles */
 
+/* Accordion styles for conversation roots and branches - Chat bubble style */
+.root-accordion-item {
+    border: none;
+    border-radius: 1rem;
+    overflow: hidden;
+    background-color: #f8f9fa;
+    margin-bottom: 1rem;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.root-accordion-header {
+    padding: 1rem 1.25rem;
+    transition: all 0.2s;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 1rem 1rem 0 0;
+}
+
+.root-accordion-header:hover {
+    background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.root-accordion-header i {
+    transition: transform 0.2s;
+}
+
+.root-accordion-item .collapse.show~.root-accordion-header i {
+    transform: rotate(90deg);
+}
+
+.branch-accordion-item {
+    margin-bottom: 0.75rem;
+    border-left: 4px solid #667eea;
+    border-radius: 0.5rem;
+    background-color: white;
+    margin-left: 0.5rem;
+    margin-right: 0.5rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.branch-accordion-header {
+    padding: 0.75rem 1rem;
+    transition: all 0.2s;
+    background-color: #f0f0f0;
+    border-radius: 0.5rem 0.5rem 0 0;
+}
+
+.branch-accordion-header:hover {
+    background-color: #e0e0e0;
+}
+
+.branch-accordion-header i {
+    transition: transform 0.2s;
+    color: #667eea;
+}
+
+.branch-accordion-item .collapse.show~.branch-accordion-header i,
+.branch-accordion-item .collapse.show+.branch-accordion-header i {
+    transform: rotate(90deg);
+}
+
+.branch-messages {
+    padding: 1rem;
+    background-color: #fafafa;
+    border-radius: 0 0 0.5rem 0.5rem;
+}
+
+.branch-messages .message {
+    margin-bottom: 1rem;
+}
+
+/* Chat bubble style for messages inside accordion */
+.branch-messages .message .border {
+    border-radius: 1.25rem !important;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.branch-messages .message[data-role="user"] .border {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    color: white;
+    border: none !important;
+}
+
+.branch-messages .message[data-role="assistant"] .border {
+    background: white !important;
+    border: 1px solid #e0e0e0 !important;
+}
+
 /* Page view styles - using direct selectors that work regardless of container */
 .page-view {
     padding: 1.5rem 0;
@@ -100,61 +190,185 @@
     padding: 1.5rem;
 }
 
-/* Pages menu improvements */
-.path-mod-harpiasurvey .list-group-item {
-    padding: 0.75rem 1rem;
-    border-left: 3px solid #e9ecef;
-    transition: all 0.2s ease;
-    overflow: visible;
-}
-
-.path-mod-harpiasurvey .list-group-item:hover {
-    background-color: #f8f9fa;
-    border-left-color: #007bff;
-    padding-left: 1.25rem;
-}
-
-.path-mod-harpiasurvey .list-group-item-action {
-    text-decoration: none;
-}
-
-/* Pages menu list items - single box with divisions */
-.path-mod-harpiasurvey .pages-menu-sticky .list-group-item {
-    border-left: 3px solid #e9ecef;
-    border-top: 1px solid #dee2e6;
-    border-right: 1px solid #dee2e6;
+/* Pages navigation bar (horizontal) */
+.path-mod-harpiasurvey .pages-navigation-bar {
+    position: sticky;
+    top: 60px;
+    /* Below secondary navigation */
+    z-index: 100;
+    background-color: #ffffff;
     border-bottom: 1px solid #dee2e6;
+    margin-bottom: 1rem;
+}
+
+.path-mod-harpiasurvey .pages-tabs-container {
+    background-color: #ffffff;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.path-mod-harpiasurvey .pages-tabs-wrapper {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+}
+
+.path-mod-harpiasurvey .pages-tabs-wrapper::-webkit-scrollbar {
+    height: 4px;
+}
+
+.path-mod-harpiasurvey .pages-tabs-wrapper::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 2px;
+}
+
+.path-mod-harpiasurvey .pages-tabs-wrapper::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 2px;
+}
+
+.path-mod-harpiasurvey .pages-tabs-wrapper::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+.path-mod-harpiasurvey .pages-tabs {
+    border-bottom: none;
+    display: flex;
+    flex-wrap: nowrap;
+    margin-bottom: 0;
+    min-width: min-content;
+}
+
+.path-mod-harpiasurvey .pages-tab-item {
+    flex-shrink: 0;
     margin-bottom: 0;
 }
 
-.path-mod-harpiasurvey .pages-menu-sticky .list-group-item:first-child {
+.path-mod-harpiasurvey .pages-tab-link {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    border: 1px solid transparent;
     border-top-left-radius: 0.375rem;
     border-top-right-radius: 0.375rem;
+    border-bottom: none;
+    color: #6c757d;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    background-color: transparent;
+    white-space: nowrap;
+    position: relative;
+    margin-bottom: -1px;
+    max-width: 250px;
+    min-width: fit-content;
 }
 
-.path-mod-harpiasurvey .pages-menu-sticky .list-group-item:last-child {
-    border-bottom-left-radius: 0.375rem;
-    border-bottom-right-radius: 0.375rem;
-    margin-bottom: 0;
-}
-
-.path-mod-harpiasurvey .pages-menu-sticky .list-group-item:hover {
-    border-left-color: #007bff;
+.path-mod-harpiasurvey .pages-tab-link:hover {
+    color: #495057;
     background-color: #f8f9fa;
+    border-color: #dee2e6 #dee2e6 transparent;
 }
 
-/* Active page highlight */
-.path-mod-harpiasurvey .pages-menu-sticky .list-group-item.active {
-    background-color: #e7f3ff;
-    border-left-color: #007bff;
-    border-left-width: 4px;
+.path-mod-harpiasurvey .pages-tab-link.active {
+    color: #007bff;
+    background-color: #ffffff;
+    border-color: #dee2e6 #dee2e6 #ffffff;
     font-weight: 500;
-    color: #0056b3;
+    z-index: 1;
 }
 
-.path-mod-harpiasurvey .pages-menu-sticky .list-group-item.active:hover {
-    background-color: #d0e7ff;
-    border-left-color: #0056b3;
+.path-mod-harpiasurvey .pages-tab-link.active::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background-color: #007bff;
+}
+
+.path-mod-harpiasurvey .pages-tab-link .page-number {
+    font-weight: 600;
+    margin-right: 0.5rem;
+    color: inherit;
+    flex-shrink: 0;
+}
+
+.path-mod-harpiasurvey .pages-tab-link .page-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 180px;
+    display: inline-block;
+}
+
+.path-mod-harpiasurvey .pages-tab-link.active .page-title {
+    max-width: 200px;
+}
+
+.path-mod-harpiasurvey .add-page-btn {
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* Responsive adjustments */
+@media (max-width: 991px) {
+    .path-mod-harpiasurvey .pages-navigation-bar {
+        top: 50px;
+    }
+
+    .path-mod-harpiasurvey .pages-tab-link {
+        padding: 0.65rem 0.85rem;
+        font-size: 0.875rem;
+    }
+
+    .path-mod-harpiasurvey .pages-tab-link .page-title {
+        max-width: 120px;
+    }
+
+    .path-mod-harpiasurvey .pages-tab-link.active .page-title {
+        max-width: 140px;
+    }
+}
+
+@media (max-width: 768px) {
+    .path-mod-harpiasurvey .pages-navigation-bar {
+        top: 45px;
+    }
+
+    .path-mod-harpiasurvey .pages-tab-link {
+        padding: 0.6rem 0.75rem;
+        font-size: 0.8125rem;
+    }
+
+    .path-mod-harpiasurvey .pages-tab-link .page-title {
+        display: none;
+    }
+
+    .path-mod-harpiasurvey .pages-tab-link .page-number {
+        margin-right: 0;
+    }
+
+    .path-mod-harpiasurvey .add-page-text {
+        display: none;
+    }
+
+    .path-mod-harpiasurvey .add-page-btn {
+        padding: 0.3rem 0.5rem;
+    }
+}
+
+@media (max-width: 576px) {
+    .path-mod-harpiasurvey .pages-navigation-bar {
+        top: 40px;
+    }
+
+    .path-mod-harpiasurvey .pages-tab-link {
+        padding: 0.5rem 0.6rem;
+        font-size: 0.75rem;
+        min-width: 2.5rem;
+        justify-content: center;
+    }
 }
 
 /* Likert scale horizontal layout */
@@ -181,15 +395,6 @@
     cursor: pointer;
 }
 
-/* Sticky pages menu - account for secondary navigation */
-.path-mod-harpiasurvey .pages-menu-sticky {
-    position: sticky;
-    top: 100px;
-    /* Account for primary nav + secondary nav + some padding */
-    max-height: calc(100vh - 120px);
-    /* Prevent overflow */
-    overflow-y: auto;
-}
 
 /* AI Conversation chat interface */
 .path-mod-harpiasurvey .ai-conversation-container .input-group {
@@ -233,4 +438,340 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 0.25rem;
+}
+
+/* Conversation tree sidebar */
+.conversation-tree-sidebar {
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+    max-height: calc(100vh - 200px);
+    display: block !important;
+    /* Ensure sidebar is visible by default */
+    width: 100%;
+    min-width: 280px;
+    max-width: 350px;
+}
+
+/* Align sidebar with chat container - match the ai-conversation-container top margin */
+.conversation-tree-wrapper {
+    display: flex;
+    flex-direction: column;
+}
+
+.conversation-tree-wrapper .conversation-tree-sidebar {
+    margin-top: 1.5rem;
+    /* Match mt-4 from ai-conversation-container */
+}
+
+.conversation-tree-sidebar .card {
+    border: 1px solid #dee2e6;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.conversation-tree-sidebar .card-header {
+    padding: 0.75rem 1rem;
+    font-weight: 600;
+}
+
+.conversation-tree-sidebar .card-body {
+    padding: 0.75rem;
+}
+
+/* Fancytree skin tweaks scoped to the sidebar to stay close to default Win8 theme */
+.conversation-tree .fancytree-container {
+    width: 100%;
+    border: 1px solid #ddd;
+    background-color: #fff;
+    padding: 4px 6px;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.conversation-tree .fancytree-container ul {
+    padding-left: 16px;
+}
+
+.conversation-tree .fancytree-node {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.conversation-tree .fancytree-title {
+    line-height: 1.3;
+    padding: 1px 4px;
+    margin: 0;
+}
+
+.conversation-tree .fancytree-node .btn {
+    padding: 2px 4px;
+    line-height: 1;
+}
+
+.conversation-tree .tree-toolbar .btn {
+    padding: 2px 6px;
+}
+
+.conversation-tree .tree-header {
+    border-bottom: 1px solid #e9ecef;
+    padding-bottom: 4px;
+}
+
+/* Keep main path turns (root children) unindented; only indent deeper branches */
+.conversation-tree .fancytree-container>ul>li>ul {
+    padding-left: 0;
+}
+
+.conversation-tree .fancytree-container ul ul ul {
+    padding-left: 16px;
+}
+
+/* Visual indicator for nodes with children */
+.conversation-tree .fancytree-node.ft-has-children>.fancytree-title::before {
+    content: '[+]';
+    color: #28a745;
+    margin-right: 6px;
+    font-size: 0.8rem;
+}
+
+.conversation-tree .fancytree-node>.fancytree-title::before {
+    display: inline-block;
+    width: 18px;
+    text-align: center;
+    margin-left: -18px;
+}
+
+.conversation-tree-sidebar .card-footer {
+    padding: 0.75rem;
+}
+
+.conversation-tree-sidebar .card-footer .btn {
+    font-weight: 500;
+    letter-spacing: 0.5px;
+}
+
+/* Tree node styles */
+.tree-node-content {
+    transition: background-color 0.2s ease;
+    border: 1px solid transparent;
+    border-radius: 0.35rem;
+}
+
+.tree-node-content:hover {
+    background-color: #f8f9fa !important;
+    border-color: #dee2e6;
+}
+
+.tree-node-content.bg-info {
+    border-color: #17a2b8;
+}
+
+.create-branch-from-tree-btn {
+    opacity: 0.9 !important;
+    transition: opacity 0.2s, transform 0.2s, box-shadow 0.2s;
+    flex-shrink: 0 !important;
+    padding: 0.25rem 0.55rem !important;
+    font-size: 0.75rem !important;
+    min-width: 72px !important;
+    height: 28px !important;
+    display: inline-flex !important;
+    visibility: visible !important;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #28a745 !important;
+    background: linear-gradient(135deg, #28a745 0%, #20c997 100%) !important;
+    color: white !important;
+    z-index: 10;
+    position: relative;
+    border-radius: 999px !important;
+    box-shadow: 0 2px 6px rgba(32, 201, 151, 0.25);
+}
+
+.tree-node-content:hover .create-branch-from-tree-btn {
+    opacity: 1 !important;
+}
+
+.create-branch-from-tree-btn:hover {
+    opacity: 1 !important;
+    transform: translateY(-1px);
+    background: linear-gradient(135deg, #218838 0%, #17a2b8 100%) !important;
+    border-color: #1e7e34 !important;
+    box-shadow: 0 4px 10px rgba(23, 162, 184, 0.3);
+}
+
+.create-branch-from-tree-btn .branch-label {
+    letter-spacing: 0.01em;
+    font-weight: 600;
+}
+
+.branch-btn-loading {
+    pointer-events: none;
+}
+
+.tree-children {
+    border-left: 2px solid #e9ecef;
+    margin-left: 1rem;
+    padding-left: 1rem;
+    margin-top: 0.25rem;
+    transition: all 0.2s ease;
+}
+
+.tree-node[data-level="0"] .tree-node-content {
+    font-weight: 500;
+}
+
+.tree-node[data-level="1"] .tree-node-content {
+    padding-left: 1.5rem !important;
+}
+
+.tree-node[data-level="2"] .tree-node-content {
+    padding-left: 2.5rem !important;
+}
+
+.tree-node[data-level="3"] .tree-node-content {
+    padding-left: 3.5rem !important;
+}
+
+.tree-node-content .toggle-children {
+    cursor: pointer;
+}
+
+/* Soften deep nesting visibility to keep navigation readable. */
+.tree-node .tree-children .tree-children {
+    border-left-color: #f1f3f5;
+    margin-left: 0.75rem;
+    padding-left: 0.75rem;
+}
+
+/* Add subtle background stripes for deep nesting to help orientation. */
+.tree-node[data-level="2"] .tree-node-content,
+.tree-node[data-level="3"] .tree-node-content,
+.tree-node .tree-children .tree-children .tree-node-content {
+    background-color: rgba(248, 249, 250, 0.6);
+}
+
+.tree-node[data-level="0"] .tree-node-content {
+    font-weight: 500;
+}
+
+/* Turn separator styles */
+.turn-separator {
+    margin: 1.5rem 0;
+}
+
+.turn-separator hr {
+    border-color: #6c757d;
+    border-width: 2px;
+}
+
+/* Previous turn messages styling */
+.previous-turn-message {
+    opacity: 0.6;
+}
+
+.previous-turn-message:hover {
+    opacity: 1;
+}
+
+/* Conversation list styles */
+.conversation-list {
+    padding: 0.5rem 0;
+}
+
+.conversation-item {
+    transition: all 0.2s ease;
+    border-left-width: 4px !important;
+    border-left-color: #007bff !important;
+}
+
+.conversation-item:hover {
+    transform: translateX(2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15) !important;
+    border-left-color: #0056b3 !important;
+}
+
+.conversation-item.active {
+    border-left-color: #ffffff !important;
+    border-left-width: 4px !important;
+}
+
+.conversation-item.active:hover {
+    border-left-color: #ffffff !important;
+    opacity: 0.9;
+}
+
+.conversation-item .icon-circle {
+    transition: all 0.2s ease;
+}
+
+.conversation-item:hover .icon-circle {
+    transform: scale(1.1);
+    box-shadow: 0 2px 4px rgba(0, 123, 255, 0.3);
+}
+
+/* Conversation detail view */
+.conversation-detail {
+    min-height: 0;
+}
+
+.conversation-detail .detail-header {
+    position: sticky;
+    top: 0;
+    background-color: #ffffff;
+    z-index: 10;
+    padding-bottom: 0.75rem;
+}
+
+/* Improved tree node styles */
+.tree-node-content {
+    border: 1px solid #e9ecef;
+    transition: all 0.2s ease;
+}
+
+.tree-node-content:hover {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.tree-node-content.bg-primary {
+    border-color: #0056b3;
+    box-shadow: 0 2px 6px rgba(0, 123, 255, 0.3);
+}
+
+/* Border left primary utility */
+.border-left-primary {
+    border-left-color: #007bff !important;
+}
+
+/* Hover shadow utility */
+.hover-shadow {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Loading spinner in conversation tree */
+.conversation-tree .spinner-border {
+    width: 2rem;
+    height: 2rem;
+    border-width: 0.2em;
+}
+
+/* Empty state styling */
+.conversation-list .fa-comments {
+    opacity: 0.2;
+}
+
+/* Card improvements - consolidated above */
+
+/* Responsive adjustments for conversation sidebar */
+@media (max-width: 991px) {
+    .conversation-tree-sidebar {
+        max-height: calc(100vh - 150px);
+    }
+
+    .conversation-item .card-body {
+        padding: 0.75rem !important;
+    }
+
+    .conversation-item h6 {
+        font-size: 0.875rem;
+    }
 }

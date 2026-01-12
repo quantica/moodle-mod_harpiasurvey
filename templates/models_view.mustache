@@ -1,0 +1,113 @@
+{{!
+    This file is part of Moodle - https://moodle.org/
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+}}
+{{!
+    @template mod_harpiasurvey/models_view
+
+    Template for viewing models registered for an experiment.
+
+    Context variables required for this template:
+    * models - Array of models
+    * has_models - Whether there are models
+    * nodels - No models message
+    * canmanage - Whether user can manage
+}}
+<div class="models-view">
+    <div class="mb-3">
+        <a href="{{addmodelurl}}" class="btn btn-primary">
+            <i class="fa fa-plus" aria-hidden="true"></i> {{addmodellabel}}
+        </a>
+    </div>
+    {{#has_models}}
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead>
+                    <tr>
+                        <th>{{namelabel}}</th>
+                        <th>{{modellabel}}</th>
+                        <th>{{descriptionlabel}}</th>
+                        <th>{{endpointlabel}}</th>
+                        <th>{{statuslabel}}</th>
+                        <th>{{timecreatedlabel}}</th>
+                        <th>{{timemodifiedlabel}}</th>
+                        <th>{{actionslabel}}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{#models}}
+                        <tr>
+                            <td>
+                                {{#../canmanage}}
+                                    <a href="{{editurl}}" class="text-decoration-none">
+                                        <strong>{{name}}</strong>
+                                    </a>
+                                {{/../canmanage}}
+                                {{^../canmanage}}
+                                    <strong>{{name}}</strong>
+                                {{/../canmanage}}
+                            </td>
+                            <td><code>{{model}}</code></td>
+                            <td>{{{description}}}</td>
+                            <td>
+                                {{#../canmanage}}
+                                    {{#endpoint}}<code class="small">{{endpoint}}</code>{{/endpoint}}{{^endpoint}}<span class="text-muted">-</span>{{/endpoint}}
+                                {{/../canmanage}}
+                                {{^../canmanage}}
+                                    <span class="text-muted">-</span>
+                                {{/../canmanage}}
+                            </td>
+                            <td>
+                                {{#enabled}}
+                                    <span class="badge badge-success">{{../enabledlabel}}</span>
+                                {{/enabled}}
+                                {{^enabled}}
+                                    <span class="badge badge-secondary">{{../disabledlabel}}</span>
+                                {{/enabled}}
+                            </td>
+                            <td class="small text-muted">
+                                {{#../canmanage}}
+                                    {{timecreated}}
+                                {{/../canmanage}}
+                                {{^../canmanage}}
+                                    -
+                                {{/../canmanage}}
+                            </td>
+                            <td class="small text-muted">
+                                {{#../canmanage}}
+                                    {{timemodified}}
+                                {{/../canmanage}}
+                                {{^../canmanage}}
+                                    -
+                                {{/../canmanage}}
+                            </td>
+                            <td>
+                                <a href="{{editurl}}" class="btn btn-sm btn-primary" title="{{../editlabel}}">
+                                    <i class="fa fa-edit" aria-hidden="true"></i> {{../editlabel}}
+                                </a>
+                                <a href="{{deleteurl}}" class="btn btn-sm btn-outline-danger" title="{{../deletelabel}}">
+                                    <i class="fa fa-trash" aria-hidden="true"></i>
+                                </a>
+                            </td>
+                        </tr>
+                    {{/models}}
+                </tbody>
+            </table>
+        </div>
+    {{/has_models}}
+    {{^has_models}}
+        <div class="alert alert-info">
+            <p class="mb-0">{{nodels}}</p>
+        </div>
+    {{/has_models}}
+</div>
+

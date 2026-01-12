@@ -1,0 +1,83 @@
+{{!
+    This file is part of Moodle - https://moodle.org/
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+}}
+{{!
+    @template mod_harpiasurvey/tree_node
+
+    Template for a single node in the conversation tree.
+
+    Context variables required for this template:
+    * turn_id - Turn ID
+    * is_root - Whether this is a root node
+    * is_current - Whether this is the currently active turn
+    * has_children - Whether this node has children
+    * branch_label - Optional label for this branch
+    * level - Nesting level (0 for root)
+    * children - Array of child nodes (recursive)
+
+    Example context (json):
+    {
+        "turn_id": 1,
+        "is_root": true,
+        "is_current": false,
+        "has_children": true,
+        "branch_label": null,
+        "level": 0,
+        "children": []
+    }
+}}
+<div class="tree-node mb-2" data-turn-id="{{turn_id}}" {{#conversation_id}}data-conversation-id="{{conversation_id}}"{{/conversation_id}} data-level="{{level}}" data-is-root="{{is_root}}">
+    <div class="d-flex align-items-center tree-node-content p-2 rounded {{#is_current}}bg-primary text-white shadow-sm{{/is_current}}{{^is_current}}border hover-shadow{{/is_current}}" 
+         style="cursor: pointer; transition: all 0.2s; {{#level}}margin-left: {{level}}rem;{{/level}}"
+         data-action="navigate" data-turn-id="{{turn_id}}" {{#conversation_id}}data-conversation-id="{{conversation_id}}"{{/conversation_id}}
+         onmouseover="{{^is_current}}this.style.backgroundColor='#f8f9fa'; this.style.borderColor='#007bff';{{/is_current}}"
+         onmouseout="{{^is_current}}this.style.backgroundColor=''; this.style.borderColor='';{{/is_current}}">
+        {{#has_children}}
+            <i class="fa fa-chevron-{{#expanded}}down{{/expanded}}{{^expanded}}right{{/expanded}} mr-2 toggle-children" 
+               data-turn-id="{{turn_id}}" 
+               style="width: 14px; cursor: pointer; text-align: center;"></i>
+        {{/has_children}}
+        {{^has_children}}
+            <span style="width: 14px; display: inline-block;"></span>
+        {{/has_children}}
+        <i class="fa fa-{{#is_root}}{{#is_direct_branch}}code-branch{{/is_direct_branch}}{{^is_direct_branch}}comments{{/is_direct_branch}}{{/is_root}}{{^is_root}}code-branch{{/is_root}} mr-2 {{#is_current}}text-white{{/is_current}}{{^is_current}}text-primary{{/is_current}}"></i>
+        <span class="flex-grow-1 font-weight-{{#is_current}}bold{{/is_current}}{{^is_current}}normal{{/is_current}}">
+            {{#str}}turn, mod_harpiasurvey{{/str}} {{#turn_number}}{{turn_number}}{{/turn_number}}{{^turn_number}}{{turn_id}}{{/turn_number}}
+            {{#branch_label}}
+                <small class="text-muted ml-1">({{branch_label}})</small>
+            {{/branch_label}}
+        </span>
+        {{#is_current}}
+            <span class="badge badge-light badge-sm ml-2" title="{{#str}}currentbranch, mod_harpiasurvey{{/str}}">
+                <i class="fa fa-circle text-primary" aria-hidden="true" style="font-size: 0.5rem;"></i>
+            </span>
+        {{/is_current}}
+        {{#can_create_branch}}
+            <button type="button" class="btn btn-xs btn-{{#is_current}}light{{/is_current}}{{^is_current}}outline-success{{/is_current}} ml-2 create-branch-from-tree-btn" 
+                    data-pageid="{{pageid}}" 
+                    data-cmid="{{cmid}}" 
+                    data-turn-id="{{turn_id}}"
+                    title="{{#str}}createbranch, mod_harpiasurvey{{/str}}">
+                <i class="fa fa-code-branch fa-xs" aria-hidden="true"></i>
+                <span class="branch-label d-none d-sm-inline ml-1">Branch</span>
+            </button>
+        {{/can_create_branch}}
+    </div>
+    {{#has_children}}
+        <div class="tree-children ml-4 mt-1" data-parent-turn="{{turn_id}}" style="display: {{#expanded}}block{{/expanded}}{{^expanded}}none{{/expanded}};">
+            {{#children}}
+                {{> mod_harpiasurvey/tree_node }}
+            {{/children}}
+        </div>
+    {{/has_children}}
+</div>
