@@ -194,6 +194,7 @@ if (!empty($pageids)) {
                 'userid' => $msg->userid,
                 'questionid' => $msg->questionid,
                 'pageid' => $msg->pageid,
+                'rootid' => $rootid,
                 'questionname' => $msg->questionname ?? get_string('pageconversation', 'mod_harpiasurvey'),
                 'questiontype' => $msg->questiontype ?? 'aichat',
                 'pagetype' => $msg->pagetype,
@@ -350,6 +351,9 @@ foreach ($conversations as $conv) {
             $conversationtypelabel .= ' (' . get_string('multimodel', 'mod_harpiasurvey') . ')';
         }
     }
+    if ($conversationtypelabel !== '') {
+        $conversationtypelabel = html_entity_decode($conversationtypelabel, ENT_QUOTES, 'UTF-8');
+    }
     
     // Build model names list
     $modelnames = [];
@@ -362,7 +366,7 @@ foreach ($conversations as $conv) {
     }
     
     $conversationslist[] = [
-        'id' => 'conv_' . $conv['userid'] . '_' . ($conv['questionid'] ?? 'page_' . $conv['pageid']),
+        'id' => 'conv_' . $conv['userid'] . '_' . ($conv['questionid'] ?? ('page_' . $conv['pageid'] . '_root_' . $conv['rootid'])),
         'userid' => $conv['userid'], // Keep userid for CSV export
         'user' => $fullname,
         'question' => format_string($conv['questionname']),
