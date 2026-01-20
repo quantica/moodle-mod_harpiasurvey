@@ -25,10 +25,18 @@
         <FIELD NAME="harpiasurveyid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="ID of the harpiasurvey instance this model belongs to."/>
         <FIELD NAME="name" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false" COMMENT="Display name of the LLM model (e.g., OpenAI GPT 4o)."/>
         <FIELD NAME="model" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false" COMMENT="Model identifier (e.g., gpt-4o-2025712)."/>
+        <FIELD NAME="provider" TYPE="char" LENGTH="50" NOTNULL="false" SEQUENCE="false" COMMENT="Provider identifier (openai, azure_openai, anthropic, gemini, openrouter, ollama, custom)."/>
         <FIELD NAME="description" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Description of the model."/>
         <FIELD NAME="apikey" TYPE="char" LENGTH="255" NOTNULL="false" SEQUENCE="false" COMMENT="API key or identifier for the model."/>
         <FIELD NAME="endpoint" TYPE="char" LENGTH="500" NOTNULL="false" SEQUENCE="false" COMMENT="API endpoint URL for the model."/>
+        <FIELD NAME="azure_resource" TYPE="char" LENGTH="255" NOTNULL="false" SEQUENCE="false" COMMENT="Azure OpenAI resource name."/>
+        <FIELD NAME="azure_deployment" TYPE="char" LENGTH="255" NOTNULL="false" SEQUENCE="false" COMMENT="Azure OpenAI deployment name."/>
+        <FIELD NAME="azure_api_version" TYPE="char" LENGTH="50" NOTNULL="false" SEQUENCE="false" COMMENT="Azure OpenAI API version."/>
+        <FIELD NAME="anthropic_version" TYPE="char" LENGTH="50" NOTNULL="false" SEQUENCE="false" COMMENT="Anthropic API version header value."/>
+        <FIELD NAME="customheaders" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Custom request headers as JSON."/>
+        <FIELD NAME="responsepath" TYPE="char" LENGTH="255" NOTNULL="false" SEQUENCE="false" COMMENT="Dot path to extract response content."/>
         <FIELD NAME="extrafields" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Extra parameters as JSON string."/>
+        <FIELD NAME="systemprompt" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Optional system role prompt prepended to conversations."/>
         <FIELD NAME="enabled" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="Whether the model is enabled (0 = disabled, 1 = enabled)."/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Timestamp of when the model was created."/>
         <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Timestamp of when the model was last modified."/>
@@ -43,9 +51,9 @@
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
         <FIELD NAME="harpiasurveyid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="ID of the harpiasurvey instance this experiment belongs to."/>
         <FIELD NAME="name" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false" COMMENT="Name of the experiment."/>
-        <FIELD NAME="type" TYPE="char" LENGTH="50" NOTNULL="false" SEQUENCE="false" COMMENT="Type of experiment."/>
         <FIELD NAME="description" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Description of the experiment."/>
         <FIELD NAME="descriptionformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Format of the description field."/>
+        <FIELD NAME="createdby" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="User ID of the experiment creator."/>
         <FIELD NAME="participants" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Number of participants in the experiment."/>
         <FIELD NAME="maxparticipants" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Maximum number of participants allowed (null = unlimited)."/>
         <FIELD NAME="availability" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Availability start timestamp (0 = always available)."/>
@@ -300,4 +308,3 @@
     </TABLE>
   </TABLES>
 </XMLDB>
-

@@ -93,7 +93,6 @@ if ($experimentid) {
     $experiment = $DB->get_record('harpiasurvey_experiments', ['id' => $experimentid, 'harpiasurveyid' => $harpiasurvey->id], '*', MUST_EXIST);
     $formdata->id = $experiment->id;
     $formdata->name = $experiment->name;
-    $formdata->type = $experiment->type;
     $formdata->description = $experiment->description;
     $formdata->descriptionformat = $experiment->descriptionformat;
     $formdata->hascrossvalidation = $experiment->hascrossvalidation;
@@ -134,21 +133,21 @@ if ($form->is_cancelled()) {
     $experimentdata = new stdClass();
     $experimentdata->harpiasurveyid = $harpiasurvey->id;
     $experimentdata->name = $data->name;
-    $experimentdata->type = $data->type;
     $experimentdata->hascrossvalidation = ($data->validation === 'crossvalidation') ? 1 : 0;
     $experimentdata->navigation_mode = $data->navigation_mode ?? 'free_navigation';
     
     // Handle availability dates.
-    if (!empty($data->availabilitystart)) {
+    if (empty($data->available)) {
+        $experimentdata->availability = 0;
+        $experimentdata->availabilityend = 0;
+    } else if (!empty($data->availabilitystart)) {
         $experimentdata->availability = $data->availabilitystart;
-    } else if ($data->available) {
+        $experimentdata->availabilityend = !empty($data->availabilityend) ? $data->availabilityend : 0;
+    } else {
         // If available checkbox is checked but no start date, use current time.
         $experimentdata->availability = time();
-    } else {
-        $experimentdata->availability = 0;
+        $experimentdata->availabilityend = !empty($data->availabilityend) ? $data->availabilityend : 0;
     }
-    
-    $experimentdata->availabilityend = !empty($data->availabilityend) ? $data->availabilityend : 0;
     
     // Handle max participants.
     $experimentdata->maxparticipants = !empty($data->maxparticipants) ? (int)$data->maxparticipants : null;
@@ -163,12 +162,14 @@ if ($form->is_cancelled()) {
         $experimentdata->published = 0;
     }
     
-    // Preserve participants count if updating.
+    // Preserve participants count and creator if updating.
     if ($data->id) {
-        $existing = $DB->get_record('harpiasurvey_experiments', ['id' => $data->id], 'participants');
+        $existing = $DB->get_record('harpiasurvey_experiments', ['id' => $data->id], 'participants, createdby');
         $experimentdata->participants = $existing->participants ?? 0;
+        $experimentdata->createdby = $existing->createdby ?? null;
     } else {
         $experimentdata->participants = 0;
+        $experimentdata->createdby = $USER->id;
     }
     
     $experimentdata->timemodified = time();
@@ -231,4 +232,3 @@ echo $OUTPUT->heading($pagetitle);
 $form->display();
 
 echo $OUTPUT->footer();
-

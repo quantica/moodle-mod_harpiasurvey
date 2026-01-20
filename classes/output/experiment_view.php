@@ -82,6 +82,11 @@ class experiment_view implements renderable, templatable {
     public $canmanage;
 
     /**
+     * @var bool Whether user can override navigation restrictions
+     */
+    public $cannavigate;
+
+    /**
      * @var string Navigation mode (free_navigation, only_forward)
      */
     public $navigation_mode;
@@ -109,11 +114,12 @@ class experiment_view implements renderable, templatable {
      * @param string $formhtml
      * @param string $pageviewhtml
      * @param bool $canmanage
+     * @param bool $cannavigate
      * @param string $navigation_mode
      * @param string $tab
      * @param string $modelshtml
      */
-    public function __construct($experiment, $pages, $context, $cmid, $experimentid, $viewingpage = null, $editing = false, $formhtml = '', $pageviewhtml = '', $canmanage = true, $navigation_mode = 'free_navigation', $tab = 'pages', $modelshtml = '') {
+    public function __construct($experiment, $pages, $context, $cmid, $experimentid, $viewingpage = null, $editing = false, $formhtml = '', $pageviewhtml = '', $canmanage = true, $cannavigate = false, $navigation_mode = 'free_navigation', $tab = 'pages', $modelshtml = '') {
         $this->experiment = $experiment;
         $this->pages = $pages;
         $this->context = $context;
@@ -124,6 +130,7 @@ class experiment_view implements renderable, templatable {
         $this->formhtml = $formhtml;
         $this->pageviewhtml = $pageviewhtml;
         $this->canmanage = $canmanage;
+        $this->cannavigate = $cannavigate;
         $this->navigation_mode = $navigation_mode;
         $this->tab = $tab;
         $this->modelshtml = $modelshtml;
@@ -168,14 +175,16 @@ class experiment_view implements renderable, templatable {
             
             // In only_forward mode, disable tabs for previous pages (only for non-admins).
             $is_disabled = false;
-            if (!$this->canmanage && $this->navigation_mode === 'only_forward' && $currentpageindex >= 0 && $index < $currentpageindex) {
+            if (!$this->cannavigate && $this->navigation_mode === 'only_forward' && $currentpageindex >= 0 && $index < $currentpageindex) {
                 $is_disabled = true;
             }
             
+            $pagetitle = format_string($page->title);
+            $pagetitle = html_entity_decode($pagetitle, ENT_QUOTES, 'UTF-8');
             $pageslist[] = [
                 'id' => $page->id,
                 'number' => $pagenum++,
-                'title' => format_string($page->title),
+                'title' => $pagetitle,
                 'url' => $pageurl->out(false),
                 'deleteurl' => $deleteurl->out(false),
                 'is_active' => ($currentpageid && $page->id == $currentpageid),
@@ -235,10 +244,10 @@ class experiment_view implements renderable, templatable {
             'backtocourseurl' => $backtocourseurl->out(false),
             'backtocourselabel' => get_string('backtocourse', 'mod_harpiasurvey'),
             'canmanage' => $this->canmanage,
+            'can_navigate' => $this->cannavigate,
             'wwwroot' => $CFG->wwwroot,
             'navigation_mode' => $this->navigation_mode,
             'is_only_forward' => ($this->navigation_mode === 'only_forward'),
         ];
     }
 }
-

@@ -90,6 +90,10 @@ if (!$canmanage) {
     require_capability('mod/harpiasurvey:view', $context);
 }
 
+// Determine navigation override (admins or experiment owners).
+$isowner = !empty($experiment->createdby) && ((int)$experiment->createdby === (int)$USER->id);
+$cannavigate = $canmanage || $isowner;
+
 // Get pages for this experiment.
 // For students, only get available pages.
 if ($canmanage) {
@@ -122,6 +126,56 @@ if ($pageid && $edit) {
         $cm->id,
         $pageid
     ]);
+}
+
+// Enforce only-forward navigation for non-owners/non-admins.
+$navigation_mode = $experiment->navigation_mode ?? 'free_navigation';
+if (!$cannavigate && $navigation_mode === 'only_forward' && !empty($pages)) {
+    $pagesarray = array_values($pages);
+    $pageindex = [];
+    foreach ($pagesarray as $index => $page) {
+        $pageindex[$page->id] = $index;
+    }
+
+    $maxindex = -1;
+    $pageids = array_keys($pageindex);
+    if (!empty($pageids)) {
+        list($insql, $inparams) = $DB->get_in_or_equal($pageids, SQL_PARAMS_NAMED);
+        $params = $inparams + ['userid' => $USER->id];
+        $responsepageids = $DB->get_fieldset_sql(
+            "SELECT DISTINCT pageid FROM {harpiasurvey_responses} WHERE userid = :userid AND pageid $insql",
+            $params
+        );
+        $conversationpageids = $DB->get_fieldset_sql(
+            "SELECT DISTINCT pageid FROM {harpiasurvey_conversations} WHERE userid = :userid AND pageid $insql",
+            $params
+        );
+        $seenpageids = array_unique(array_merge($responsepageids, $conversationpageids));
+        foreach ($seenpageids as $seenpageid) {
+            if (isset($pageindex[$seenpageid])) {
+                $maxindex = max($maxindex, $pageindex[$seenpageid]);
+            }
+        }
+    }
+
+    $maxallowedindex = max(0, $maxindex + 1);
+    $requestedindex = ($pageid && isset($pageindex[$pageid])) ? $pageindex[$pageid] : $maxallowedindex;
+    $targetindex = null;
+    if (!$pageid) {
+        $targetindex = $maxallowedindex;
+    } else if ($requestedindex < $maxindex) {
+        $targetindex = $maxindex;
+    } else if ($requestedindex > $maxallowedindex) {
+        $targetindex = $maxallowedindex;
+    }
+
+    if ($targetindex !== null && isset($pagesarray[$targetindex])) {
+        redirect(new moodle_url('/mod/harpiasurvey/view_experiment.php', [
+            'id' => $cm->id,
+            'experiment' => $experiment->id,
+            'page' => $pagesarray[$targetindex]->id
+        ]));
+    }
 }
 
 // Add breadcrumb.
@@ -228,8 +282,21 @@ if ($pageid) {
             $editurl = '';
             $deleteurl = '';
         }
-        $navigation_mode = $experiment->navigation_mode ?? 'free_navigation';
-        $pageview = new \mod_harpiasurvey\output\page_view($viewingpage, $context, $editurl, $pagequestions, $cm->id, $pageid, $pages, $experiment->id, $canmanage, $deleteurl, $navigation_mode, $turn);
+        $pageview = new \mod_harpiasurvey\output\page_view(
+            $viewingpage,
+            $context,
+            $editurl,
+            $pagequestions,
+            $cm->id,
+            $pageid,
+            $pages,
+            $experiment->id,
+            $canmanage,
+            $cannavigate,
+            $deleteurl,
+            $navigation_mode,
+            $turn
+        );
         $renderer = $PAGE->get_renderer('mod_harpiasurvey');
         $pageviewhtml = $renderer->render($pageview);
         
@@ -247,7 +314,7 @@ if ($pageid) {
         
         // Load JavaScript for navigation control (only in view mode, not edit mode, and only for non-admins).
         if (!$canmanage) {
-            $PAGE->requires->js_call_amd('mod_harpiasurvey/navigation_control', 'init', [$canmanage]);
+            $PAGE->requires->js_call_amd('mod_harpiasurvey/navigation_control', 'init', [$cannavigate]);
         }
     }
 }
@@ -270,7 +337,6 @@ if ($tab === 'models') {
 
 // Create and render experiment view.
 require_once(__DIR__.'/classes/output/experiment_view.php');
-$navigation_mode = $experiment->navigation_mode ?? 'free_navigation';
 $experimentview = new \mod_harpiasurvey\output\experiment_view(
     $experiment,
     $pages,
@@ -282,6 +348,7 @@ $experimentview = new \mod_harpiasurvey\output\experiment_view(
     $formhtml,
     $pageviewhtml,
     $canmanage,
+    $cannavigate,
     $navigation_mode,
     $tab,
     $modelshtml

@@ -66,14 +66,31 @@ if ($modelid) {
     $model = $DB->get_record('harpiasurvey_models', ['id' => $modelid, 'harpiasurveyid' => $harpiasurvey->id], '*', MUST_EXIST);
     $formdata->id = $model->id;
     $formdata->name = $model->name;
+    $formdata->provider = $model->provider ?? 'custom';
     $formdata->model = $model->model ?? '';
     $formdata->endpoint = $model->endpoint;
     $formdata->apikey = $model->apikey;
+    $formdata->azure_resource = $model->azure_resource ?? '';
+    $formdata->azure_deployment = $model->azure_deployment ?? '';
+    $formdata->azure_api_version = $model->azure_api_version ?? '';
+    $formdata->anthropic_version = $model->anthropic_version ?? '';
+    $formdata->systemprompt = $model->systemprompt ?? '';
+    $formdata->customheaders = $model->customheaders ?? '';
+    $formdata->responsepath = $model->responsepath ?? '';
     $formdata->extrafields = $model->extrafields ?? '';
     $formdata->enabled = isset($model->enabled) ? $model->enabled : 1;
 } else {
     $formdata->id = 0;
+    $formdata->provider = 'openai';
     $formdata->model = '';
+    $formdata->endpoint = '';
+    $formdata->systemprompt = '';
+    $formdata->azure_resource = '';
+    $formdata->azure_deployment = '';
+    $formdata->azure_api_version = '';
+    $formdata->anthropic_version = '';
+    $formdata->customheaders = '';
+    $formdata->responsepath = '';
     $formdata->extrafields = '';
     $formdata->enabled = 1;
 }
@@ -141,12 +158,24 @@ if ($form->is_cancelled()) {
     $modeldata = new stdClass();
     $modeldata->harpiasurveyid = $harpiasurvey->id;
     $modeldata->name = $data->name;
+    $modeldata->provider = $data->provider ?? 'custom';
     $modeldata->model = $data->model;
     $modeldata->endpoint = $data->endpoint;
     $modeldata->apikey = $data->apikey;
+    $modeldata->azure_resource = $data->azure_resource ?? '';
+    $modeldata->azure_deployment = $data->azure_deployment ?? '';
+    $modeldata->azure_api_version = $data->azure_api_version ?? '';
+    $modeldata->anthropic_version = $data->anthropic_version ?? '';
+    $modeldata->systemprompt = $data->systemprompt ?? '';
+    $modeldata->customheaders = $data->customheaders ?? '';
+    $modeldata->responsepath = $data->responsepath ?? '';
     $modeldata->extrafields = $data->extrafields ?? '';
     $modeldata->enabled = isset($data->enabled) ? (int)$data->enabled : 1;
     $modeldata->timemodified = time();
+
+    if ($modeldata->provider === 'azure_openai' && empty($modeldata->model)) {
+        $modeldata->model = $modeldata->azure_deployment;
+    }
 
     if ($data->id) {
         // Update existing model.
@@ -188,4 +217,3 @@ echo $OUTPUT->heading($pagetitle);
 $form->display();
 
 echo $OUTPUT->footer();
-

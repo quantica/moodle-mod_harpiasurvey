@@ -77,6 +77,11 @@ class page_view implements renderable, templatable {
     public $canmanage;
 
     /**
+     * @var bool Whether user can override navigation restrictions
+     */
+    public $cannavigate;
+
+    /**
      * @var string Delete URL
      */
     public $deleteurl;
@@ -103,11 +108,12 @@ class page_view implements renderable, templatable {
      * @param array $allpages
      * @param int $experimentid
      * @param bool $canmanage
+     * @param bool $cannavigate
      * @param string $deleteurl
      * @param string $navigation_mode
      * @param int|null $initial_turn Initial turn from query parameter
      */
-    public function __construct($page, $context, $editurl, $questions = [], $cmid = 0, $pageid = 0, $allpages = [], $experimentid = 0, $canmanage = true, $deleteurl = '', $navigation_mode = 'free_navigation', $initial_turn = null) {
+    public function __construct($page, $context, $editurl, $questions = [], $cmid = 0, $pageid = 0, $allpages = [], $experimentid = 0, $canmanage = true, $cannavigate = false, $deleteurl = '', $navigation_mode = 'free_navigation', $initial_turn = null) {
         $this->page = $page;
         $this->context = $context;
         $this->editurl = $editurl;
@@ -117,6 +123,7 @@ class page_view implements renderable, templatable {
         $this->allpages = $allpages;
         $this->experimentid = $experimentid;
         $this->canmanage = $canmanage;
+        $this->cannavigate = $cannavigate;
         $this->deleteurl = $deleteurl;
         $this->navigation_mode = $navigation_mode;
         $this->initial_turn = $initial_turn;
@@ -470,7 +477,7 @@ class page_view implements renderable, templatable {
 
                 // Previous page - only show if navigation mode allows it.
                 // In 'only_forward' mode, hide previous button for non-admins (users can't go back).
-                if ($currentindex > 0 && ($this->navigation_mode === 'free_navigation' || $this->canmanage)) {
+                if ($currentindex > 0 && ($this->navigation_mode === 'free_navigation' || $this->cannavigate)) {
                     $prevpage = $pagesarray[$currentindex - 1];
                     $prevurl = new \moodle_url('/mod/harpiasurvey/view_experiment.php', [
                         'id' => $this->cmid,
@@ -509,7 +516,7 @@ class page_view implements renderable, templatable {
                         'number' => $index + 1,
                         'url' => $pageurl->out(false),
                         'is_current' => ($p->id == $this->pageid),
-                        'is_only_forward' => (!$this->canmanage && $this->navigation_mode === 'only_forward' && $index < $currentindex)
+                        'is_only_forward' => (!$this->cannavigate && $this->navigation_mode === 'only_forward' && $index < $currentindex)
                     ];
                 }
                 $pagination['pages'] = $pagenumbers;
@@ -523,6 +530,7 @@ class page_view implements renderable, templatable {
         $hasaichat = false;
         $pagebehavior = $this->page->behavior ?? 'continuous';
         $isturnsmode = ($pagebehavior === 'turns');
+        $isqamode = ($pagebehavior === 'qa');
         
         // Check if page type is aichat and behavior is not multi_model.
         if ($this->page->type === 'aichat' && $pagebehavior !== 'multi_model') {
@@ -594,7 +602,7 @@ class page_view implements renderable, templatable {
                     $conversationhistory[] = $msgdata;
                     
                     // For multi-model tabs, organize by modelid.
-                    if ($use_multi_model_tabs && $msg->modelid) {
+                    if ($use_multi_model_tabs && !$isqamode && $msg->modelid) {
                         if (!isset($conversationhistory_by_model[$msg->modelid])) {
                             $conversationhistory_by_model[$msg->modelid] = [];
                         }
@@ -602,10 +610,37 @@ class page_view implements renderable, templatable {
                     }
                 }
             }
+
+            $qaquestions = [];
+            $qaactiveid = null;
+            if ($isqamode && !empty($conversationhistory)) {
+                foreach ($conversationhistory as $msg) {
+                    if (isset($msg['role']->user)) {
+                        $preview = trim(strip_tags($msg['content']));
+                        $preview = html_entity_decode($preview, ENT_QUOTES, 'UTF-8');
+                        if (\core_text::strlen($preview) > 60) {
+                            $preview = \core_text::substr($preview, 0, 60) . '...';
+                        }
+                        $qaquestions[] = [
+                            'id' => $msg['id'],
+                            'preview' => $preview,
+                            'title' => $preview,
+                            'is_active' => false,
+                        ];
+                        $qaactiveid = $msg['id'];
+                    }
+                }
+                if ($qaactiveid !== null) {
+                    $lastindex = count($qaquestions) - 1;
+                    if ($lastindex >= 0) {
+                        $qaquestions[$lastindex]['is_active'] = true;
+                    }
+                }
+            }
             
             // Prepare model tabs data for multi-model interface.
             $model_tabs = [];
-            if ($use_multi_model_tabs) {
+            if ($use_multi_model_tabs && !$isqamode) {
                 // Capture $this in a variable for use in closure.
                 $that = $this;
                 // Helper function to format a question for template.
@@ -781,13 +816,17 @@ class page_view implements renderable, templatable {
                 'models' => $models,
                 'has_models' => !empty($models),
                 'has_multiple_models' => $has_multiple_models,
-                'use_multi_model_tabs' => $use_multi_model_tabs,
+                'use_multi_model_tabs' => ($use_multi_model_tabs && !$isqamode),
                 'model_tabs' => $model_tabs,
                 'behavior' => $pagebehavior,
                 'is_turns_mode' => $isturnsmode, // Explicit boolean.
+                'is_qa_mode' => $isqamode,
                 'show_sidebar' => ($isturnsmode || $pagebehavior === 'continuous'), // Show sidebar for turns and continuous mode.
                 'conversation_history' => $conversationhistory,
                 'has_history' => !empty($conversationhistory),
+                'qa_questions' => $qaquestions,
+                'has_qa_questions' => !empty($qaquestions),
+                'qa_active_id' => $qaactiveid,
                 'turn_evaluation_questions' => $turnevaluationquestions,
                 'has_turn_evaluation_questions' => !empty($turnevaluationquestions),
                 'turn_evaluation_questions_json' => $turnevaluationquestionsjson,
@@ -803,6 +842,7 @@ class page_view implements renderable, templatable {
                 'has_models' => false,
                 'behavior' => 'continuous',
                 'is_turns_mode' => false,
+                'is_qa_mode' => false,
                 'conversation_history' => [],
                 'has_history' => false,
                 'turn_evaluation_questions' => [],
@@ -923,8 +963,11 @@ class page_view implements renderable, templatable {
             }
         }
 
+        $pagetitle = format_string($this->page->title);
+        $pagetitle = html_entity_decode($pagetitle, ENT_QUOTES, 'UTF-8');
+
         return [
-            'title' => format_string($this->page->title),
+            'title' => $pagetitle,
             'description' => $description,
             'has_description' => $hasdescription,
             'editurl' => $this->editurl,
@@ -932,6 +975,7 @@ class page_view implements renderable, templatable {
             'deleteurl' => $this->deleteurl,
             'has_deleteurl' => !empty($this->deleteurl),
             'canmanage' => $this->canmanage,
+            'can_navigate' => $this->cannavigate,
             'questions' => $questionslist,
             'has_questions' => !empty($questionslist),
             'has_non_aiconversation_questions' => $hasnonaiconversationquestions,
@@ -940,7 +984,7 @@ class page_view implements renderable, templatable {
             'pagination' => $pagination,
             'has_pagination' => !empty($pagination),
             'navigation_mode' => $this->navigation_mode,
-            'is_only_forward' => (!$this->canmanage && $this->navigation_mode === 'only_forward'),
+            'is_only_forward' => (!$this->cannavigate && $this->navigation_mode === 'only_forward'),
             'canmanage' => $this->canmanage,
             'wwwroot' => $CFG->wwwroot,
             'cmid' => $this->cmid,
@@ -954,4 +998,3 @@ class page_view implements renderable, templatable {
         ];
     }
 }
-

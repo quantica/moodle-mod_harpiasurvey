@@ -148,6 +148,7 @@ class page extends \moodleform {
         
         // Behavior dropdown (only for aichat pages).
         $behavioroptions = [
+            'qa' => get_string('pagebehaviorqa', 'mod_harpiasurvey'),
             'continuous' => get_string('pagebehaviorcontinuous', 'mod_harpiasurvey'),
             'turns' => get_string('pagebehaviorturns', 'mod_harpiasurvey'),
         ];
@@ -513,4 +514,3 @@ class page extends \moodleform {
         return $errors;
     }
 }
-

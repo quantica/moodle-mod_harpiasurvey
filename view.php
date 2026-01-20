@@ -70,6 +70,23 @@ $experiments = $DB->get_records('harpiasurvey_experiments', ['harpiasurveyid' =>
 // Check if user can manage experiments.
 $canmanage = has_capability('mod/harpiasurvey:manageexperiments', $cm->context);
 
+// For non-managers, only show available experiments.
+if (!$canmanage) {
+    $now = time();
+    $experiments = array_filter($experiments, function($experiment) use ($now) {
+        if (!empty($experiment->availability) && $experiment->availability > 0) {
+            if ($experiment->availability > $now) {
+                return false;
+            }
+            if (!empty($experiment->availabilityend) && $experiment->availabilityend > 0 && $experiment->availabilityend < $now) {
+                return false;
+            }
+            return true;
+        }
+        return !empty($experiment->published);
+    });
+}
+
 // Create and render experiments table using Mustache template.
 require_once(__DIR__.'/classes/output/experiments_table.php');
 $experimentstable = new \mod_harpiasurvey\output\experiments_table($experiments, $cm->context, $cm->id, $canmanage);
@@ -83,4 +100,3 @@ echo $tablehtml;
 $PAGE->requires->js_call_amd('mod_harpiasurvey/sortable_table', 'init');
 
 echo $OUTPUT->footer();
-

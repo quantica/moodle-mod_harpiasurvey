@@ -33,6 +33,7 @@ export const init = () => {
     }
     const hasTurns = containers.filter('[data-behavior="turns"]').length > 0;
     const hasContinuous = containers.filter('[data-behavior="continuous"]').length > 0;
+    const hasQa = containers.filter('[data-behavior="qa"]').length > 0;
     
     // Only load turns if needed (turns mode uses fancytree)
     if (hasTurns) {
@@ -46,6 +47,13 @@ export const init = () => {
     if (hasContinuous) {
         // eslint-disable-next-line no-undef
         require(['mod_harpiasurvey/continuous'], (module) => {
+            module.init();
+        });
+    }
+
+    if (hasQa) {
+        // eslint-disable-next-line no-undef
+        require(['mod_harpiasurvey/qa'], (module) => {
             module.init();
         });
     }

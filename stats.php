@@ -180,6 +180,8 @@ if (!empty($pageids)) {
             
             if ($msg->pagebehavior === 'turns') {
                 $conversationtype = 'turns';
+            } else if ($msg->pagebehavior === 'qa') {
+                $conversationtype = 'qa';
             } else if ($msg->pagebehavior === 'continuous') {
                 $conversationtype = 'continuous';
             }
@@ -340,6 +342,8 @@ foreach ($conversations as $conv) {
         if ($conv['ismultimodel']) {
             $conversationtypelabel .= ' (' . get_string('multimodel', 'mod_harpiasurvey') . ')';
         }
+    } else if ($conv['conversationtype'] === 'qa') {
+        $conversationtypelabel = get_string('pagebehaviorqa', 'mod_harpiasurvey');
     } else if ($conv['conversationtype'] === 'continuous') {
         $conversationtypelabel = get_string('continuous', 'mod_harpiasurvey');
         if ($conv['ismultimodel']) {
@@ -679,4 +683,3 @@ echo html_writer::div(
 );
 
 echo $OUTPUT->footer();
-

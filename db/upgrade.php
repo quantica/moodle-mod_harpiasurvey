@@ -466,6 +466,81 @@ function xmldb_harpiasurvey_upgrade($oldversion) {
         upgrade_mod_savepoint(true, 202501280027, 'harpiasurvey');
     }
 
+    if ($oldversion < 202501280028) {
+        // Add systemprompt field to harpiasurvey_models table.
+        $table = new xmldb_table('harpiasurvey_models');
+
+        $field = new xmldb_field('systemprompt', XMLDB_TYPE_TEXT, null, null, null, null, null, 'extrafields');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_mod_savepoint(true, 202501280028, 'harpiasurvey');
+    }
+
+    if ($oldversion < 202501280029) {
+        // Add provider fields to harpiasurvey_models table.
+        $table = new xmldb_table('harpiasurvey_models');
+
+        $field = new xmldb_field('provider', XMLDB_TYPE_CHAR, '50', null, null, null, null, 'model');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $field = new xmldb_field('azure_resource', XMLDB_TYPE_CHAR, '255', null, null, null, null, 'endpoint');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $field = new xmldb_field('azure_deployment', XMLDB_TYPE_CHAR, '255', null, null, null, null, 'azure_resource');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $field = new xmldb_field('azure_api_version', XMLDB_TYPE_CHAR, '50', null, null, null, null, 'azure_deployment');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $field = new xmldb_field('anthropic_version', XMLDB_TYPE_CHAR, '50', null, null, null, null, 'azure_api_version');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $field = new xmldb_field('customheaders', XMLDB_TYPE_TEXT, null, null, null, null, null, 'anthropic_version');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $field = new xmldb_field('responsepath', XMLDB_TYPE_CHAR, '255', null, null, null, null, 'customheaders');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_mod_savepoint(true, 202501280029, 'harpiasurvey');
+    }
+
+    if ($oldversion < 202501280030) {
+        // Drop unused type field from harpiasurvey_experiments table.
+        $table = new xmldb_table('harpiasurvey_experiments');
+        $field = new xmldb_field('type');
+        if ($dbman->field_exists($table, $field)) {
+            $dbman->drop_field($table, $field);
+        }
+
+        upgrade_mod_savepoint(true, 202501280030, 'harpiasurvey');
+    }
+
+    if ($oldversion < 202501280031) {
+        // Add createdby field to harpiasurvey_experiments table.
+        $table = new xmldb_table('harpiasurvey_experiments');
+        $field = new xmldb_field('createdby', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'descriptionformat');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_mod_savepoint(true, 202501280031, 'harpiasurvey');
+    }
+
     return true;
 }
-

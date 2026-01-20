@@ -439,7 +439,7 @@ switch ($action) {
             break;
         }
         
-        // Get behavior from page (continuous, turns, multi_model).
+        // Get behavior from page (continuous, turns, multi_model, qa).
         $behavior = $page->behavior ?? 'continuous';
         
         // For turns mode, use requested turn_id if provided, otherwise calculate it.
@@ -540,6 +540,10 @@ switch ($action) {
             }
         }
         
+        if ($behavior === 'qa') {
+            $parentid = null;
+        }
+
         // For continuous mode, only determine parentid if not provided AND no conversation is specified.
         // If parentid is explicitly provided (even if it's a placeholder), use it.
         // Only auto-determine parentid if it's truly missing (0 or not set).

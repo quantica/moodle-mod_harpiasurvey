@@ -97,19 +97,6 @@ class experiment extends \moodleform {
             $mform->setDefault('name', $this->_customdata->name);
         }
 
-        // Type field (dropdown).
-        $typeoptions = [
-            'questions_answers' => get_string('typequestionsanswers', 'mod_harpiasurvey'),
-            'dialogue' => get_string('typedialogue', 'mod_harpiasurvey'),
-        ];
-        $mform->addElement('select', 'type', get_string('type', 'mod_harpiasurvey'), $typeoptions);
-        $mform->setType('type', PARAM_ALPHANUMEXT);
-        if (isset($this->_customdata->type)) {
-            $mform->setDefault('type', $this->_customdata->type);
-        } else {
-            $mform->setDefault('type', 'questions_answers');
-        }
-
         // Models field (autocomplete with multiple selection).
         $models = $DB->get_records('harpiasurvey_models', ['harpiasurveyid' => $this->_customdata->harpiasurveyid], 'name ASC');
         $modeloptions = [];
@@ -266,4 +253,3 @@ class experiment extends \moodleform {
         return $errors;
     }
 }
-

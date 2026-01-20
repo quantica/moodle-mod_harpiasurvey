@@ -26,7 +26,6 @@ defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'mod_harpiasurvey';
 $plugin->release = '0.1.0';
-$plugin->version = 202501280027;
+$plugin->version = 202501280031;
 $plugin->requires = 2024052700; // Moodle 5.1+
 $plugin->maturity = MATURITY_ALPHA;
-

@@ -72,7 +72,7 @@
                     </div>
                 {{/aichat.show_sidebar}}
                 <div class="{{#aichat.show_sidebar}}col-md-9{{/aichat.show_sidebar}}{{^aichat.show_sidebar}}col-12{{/aichat.show_sidebar}}">
-            <div class="ai-conversation-container mb-4 mt-4" data-cmid="{{cmid}}" data-pageid="{{pageid}}" data-behavior="{{aichat.behavior}}" {{#aichat.has_models}}data-models="{{#aichat.models}}{{id}}{{^@last}},{{/@last}}{{/aichat.models}}"{{/aichat.has_models}} {{#aichat.has_min_turns}}data-min-turns="{{aichat.min_turns}}"{{/aichat.has_min_turns}} {{#aichat.has_max_turns}}data-max-turns="{{aichat.max_turns}}"{{/aichat.has_max_turns}}>
+            <div class="ai-conversation-container mb-4 mt-4" data-cmid="{{cmid}}" data-pageid="{{pageid}}" data-behavior="{{aichat.behavior}}" {{#aichat.qa_active_id}}data-qa-active-id="{{aichat.qa_active_id}}"{{/aichat.qa_active_id}} {{#aichat.has_models}}data-models="{{#aichat.models}}{{id}}{{^@last}},{{/@last}}{{/aichat.models}}"{{/aichat.has_models}} {{#aichat.has_min_turns}}data-min-turns="{{aichat.min_turns}}"{{/aichat.has_min_turns}} {{#aichat.has_max_turns}}data-max-turns="{{aichat.max_turns}}"{{/aichat.has_max_turns}}>
             {{#aichat.has_turn_evaluation_questions}}
                 <script type="application/json" id="turn-evaluation-questions-data-{{pageid}}">{{{aichat.turn_evaluation_questions_json}}}</script>
             {{/aichat.has_turn_evaluation_questions}}
@@ -110,6 +110,23 @@
             {{/aichat.is_turns_mode}}
             
             
+            {{! Q&A history list }}
+            {{#aichat.is_qa_mode}}
+                <div class="qa-questions-list mb-2" data-pageid="{{pageid}}">
+                    {{#aichat.has_qa_questions}}
+                        {{#aichat.qa_questions}}
+                            <button type="button"
+                                    class="btn btn-sm btn-outline-secondary qa-question-item{{#is_active}} active{{/is_active}}"
+                                    data-pageid="{{pageid}}"
+                                    data-question-id="{{id}}"
+                                    title="{{title}}">
+                                {{preview}}
+                            </button>
+                        {{/aichat.qa_questions}}
+                    {{/aichat.has_qa_questions}}
+                </div>
+            {{/aichat.is_qa_mode}}
+
             {{! Chat messages area }}
             <div class="chat-messages border rounded p-3 mb-2" id="chat-messages-page-{{pageid}}" style="max-height: 600px; overflow-y: auto; background-color: #f8f9fa;">
                 {{#aichat.has_history}}
@@ -124,7 +141,12 @@
                 {{/aichat.has_history}}
                 {{^aichat.has_history}}
                     <div class="text-muted text-center small py-3">
-                        {{#str}}aiconversationplaceholder, mod_harpiasurvey{{/str}}
+                        {{#aichat.is_qa_mode}}
+                            {{#str}}qaplaceholder, mod_harpiasurvey{{/str}}
+                        {{/aichat.is_qa_mode}}
+                        {{^aichat.is_qa_mode}}
+                            {{#str}}aiconversationplaceholder, mod_harpiasurvey{{/str}}
+                        {{/aichat.is_qa_mode}}
                     </div>
                 {{/aichat.has_history}}
             </div>
@@ -137,6 +159,13 @@
                     <i class="fa fa-arrow-up"></i>
                 </button>
             </div>
+            {{#aichat.is_qa_mode}}
+                <div class="mt-2 d-flex justify-content-end">
+                    <button type="button" class="btn btn-outline-secondary btn-sm new-question-btn" data-pageid="{{pageid}}">
+                        {{#str}}newquestion, mod_harpiasurvey{{/str}}
+                    </button>
+                </div>
+            {{/aichat.is_qa_mode}}
             {{#aichat.is_turns_mode}}
                 <div class="mt-2 text-muted small" id="turn-locked-message-{{pageid}}" style="display: none;">
                     <i class="fa fa-lock"></i> {{#str}}turnlocked, mod_harpiasurvey{{/str}}
@@ -257,7 +286,7 @@
     
     {{! Pagination navigation }}
     {{#has_pagination}}
-        <nav aria-label="Page navigation" class="mt-4" data-navigation-mode="{{navigation_mode}}" data-canmanage="{{canmanage}}">
+        <nav aria-label="Page navigation" class="mt-4" data-navigation-mode="{{navigation_mode}}" data-canmanage="{{can_navigate}}">
             <ul class="pagination justify-content-center">
                 {{#pagination.has_prev}}
                     <li class="page-item">
@@ -401,4 +430,3 @@
         </div>
     {{/has_subpages}}
 </div>
-
