@@ -164,7 +164,7 @@ class subpage extends \moodleform {
             global $DB, $OUTPUT;
             
             $subpagequestions = $DB->get_records_sql(
-                "SELECT sq.id, sq.subpageid, sq.questionid, sq.enabled, sq.sortorder, sq.timecreated,
+                "SELECT sq.id, sq.subpageid, sq.questionid, sq.enabled, sq.required, sq.sortorder, sq.timecreated,
                         q.name, q.type
                    FROM {harpiasurvey_subpage_questions} sq
                    JOIN {harpiasurvey_questions} q ON q.id = sq.questionid
@@ -185,6 +185,7 @@ class subpage extends \moodleform {
                 $questionstable .= '<th scope="col">' . get_string('subpagevisibility', 'mod_harpiasurvey') . '</th>';
                 $questionstable .= '<th scope="col">' . get_string('subpageturnnumber', 'mod_harpiasurvey') . '</th>';
                 $questionstable .= '<th scope="col">' . get_string('enabled', 'mod_harpiasurvey') . '</th>';
+                $questionstable .= '<th scope="col">' . get_string('required') . '</th>';
                 $questionstable .= '<th scope="col">' . get_string('actions', 'mod_harpiasurvey') . '</th>';
                 $questionstable .= '</tr>';
                 $questionstable .= '</thead>';
@@ -223,6 +224,13 @@ class subpage extends \moodleform {
                     $enabledchecked = $sq->enabled ? 'checked' : '';
                     $questionstable .= '<td>';
                     $questionstable .= '<input type="checkbox" id="' . $enabledid . '" name="question_enabled[' . $sq->id . ']" value="1" ' . $enabledchecked . '>';
+                    $questionstable .= '</td>';
+
+                    // Required checkbox.
+                    $requiredid = 'question_required_' . $sq->id;
+                    $requiredchecked = $sq->required ? 'checked' : '';
+                    $questionstable .= '<td>';
+                    $questionstable .= '<input type="checkbox" id="' . $requiredid . '" name="question_required[' . $sq->id . ']" value="1" ' . $requiredchecked . '>';
                     $questionstable .= '</td>';
                     
                     // Actions: remove from subpage.
@@ -313,4 +321,3 @@ class subpage extends \moodleform {
         return $errors;
     }
 }
-

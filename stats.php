@@ -256,6 +256,102 @@ if (!empty($modelids)) {
     }
 }
 
+// Build evaluation metadata for aichat pages (group by iteration).
+$evaluationmeta = [];
+foreach ($allmessages as $msg) {
+    if ($msg->pagetype !== 'aichat') {
+        continue;
+    }
+    $evalid = null;
+    if ($msg->pagebehavior === 'turns') {
+        $evalid = $msg->turn_id;
+    } else {
+        $evalid = $findroot($msg->id);
+    }
+    if (!$evalid) {
+        continue;
+    }
+    $key = $msg->userid . '_' . $msg->pageid . '_' . $evalid;
+    if (!isset($evaluationmeta[$key])) {
+        $evaluationmeta[$key] = [
+            'userid' => $msg->userid,
+            'pageid' => $msg->pageid,
+            'evaluation_id' => $evalid,
+            'pagebehavior' => $msg->pagebehavior,
+            'conversationtype' => $msg->pagebehavior === 'qa' ? 'qa' : ($msg->pagebehavior === 'turns' ? 'turns' : 'continuous'),
+            'modelids' => [],
+            'messagecount' => 0,
+            'preview' => '',
+            'messages' => [],
+            'timecreated' => $msg->timecreated,
+            'timelast' => $msg->timecreated
+        ];
+    }
+    $evaluationmeta[$key]['modelids'][$msg->modelid] = true;
+    $evaluationmeta[$key]['messagecount']++;
+    if ($msg->timecreated < $evaluationmeta[$key]['timecreated']) {
+        $evaluationmeta[$key]['timecreated'] = $msg->timecreated;
+    }
+    if ($msg->timecreated > $evaluationmeta[$key]['timelast']) {
+        $evaluationmeta[$key]['timelast'] = $msg->timecreated;
+    }
+    if ($msg->role === 'user' && $evaluationmeta[$key]['preview'] === '') {
+        $evaluationmeta[$key]['preview'] = $msg->content;
+    }
+    $roleobj = new \stdClass();
+    $roleobj->{$msg->role} = true;
+    $evaluationmeta[$key]['messages'][] = [
+        'id' => $msg->id,
+        'role' => $roleobj,
+        'content' => format_text($msg->content, FORMAT_MARKDOWN, [
+            'context' => $context,
+            'noclean' => false,
+            'overflowdiv' => true
+        ]),
+        'rawcontent' => $msg->content,
+        'timecreated' => userdate($msg->timecreated, get_string('strftimedatetimeshort', 'langconfig')),
+        'timestamp' => $msg->timecreated,
+        'modelid' => $msg->modelid
+    ];
+}
+
+// Finalize evaluation metadata with model names and labels.
+foreach ($evaluationmeta as $key => $meta) {
+    $modelnames = [];
+    foreach (array_keys($meta['modelids']) as $modelid) {
+        if (isset($models[$modelid])) {
+            $modelnames[] = $models[$modelid]->name;
+        } else {
+            $modelnames[] = 'Model ' . $modelid;
+        }
+    }
+    $conversationtypelabel = '';
+    if ($meta['conversationtype'] === 'turns') {
+        $conversationtypelabel = get_string('turns', 'mod_harpiasurvey');
+    } else if ($meta['conversationtype'] === 'qa') {
+        $conversationtypelabel = get_string('pagebehaviorqa', 'mod_harpiasurvey');
+    } else {
+        $conversationtypelabel = get_string('continuous', 'mod_harpiasurvey');
+    }
+    if ($conversationtypelabel !== '') {
+        $conversationtypelabel = html_entity_decode($conversationtypelabel, ENT_QUOTES, 'UTF-8');
+    }
+    $evaluationmeta[$key]['modelnamesstr'] = implode(', ', $modelnames);
+    $evaluationmeta[$key]['conversationtypelabel'] = $conversationtypelabel;
+    $evaluationmeta[$key]['timecreated_str'] = userdate($meta['timecreated'], get_string('strftimedatetimeshort', 'langconfig'));
+    $evaluationmeta[$key]['timelast_str'] = userdate($meta['timelast'], get_string('strftimedatetimeshort', 'langconfig'));
+    $evaluationmeta[$key]['preview'] = htmlspecialchars(strip_tags($meta['preview']), ENT_QUOTES, 'UTF-8');
+    if (!empty($evaluationmeta[$key]['messages'])) {
+        foreach ($evaluationmeta[$key]['messages'] as &$message) {
+            $message['modelname'] = isset($models[$message['modelid']]) ? $models[$message['modelid']]->name : ('Model ' . $message['modelid']);
+        }
+        unset($message);
+        $evaluationmeta[$key]['messagesjson'] = htmlspecialchars(json_encode($evaluationmeta[$key]['messages']), ENT_QUOTES, 'UTF-8');
+    } else {
+        $evaluationmeta[$key]['messagesjson'] = '[]';
+    }
+}
+
 // Get all question options for questions that have options.
 $questionids = array_unique(array_column($responses, 'questionid'));
 $alloptions = [];
@@ -499,6 +595,7 @@ foreach ($responses as $response) {
     
     $responseslist[] = [
         'id' => $response->id,
+        'userid' => $response->userid,
         'user' => $fullname,
         'question' => format_string($response->questionname),
         'questiontype' => $questiontypestring,
@@ -507,12 +604,14 @@ foreach ($responses as $response) {
         'pagebehavior' => $response->pagebehavior ?? null,
         'evaluatesconversation' => $evaluatesconversation,
         'turn_id' => $response->turn_id ?? null, // Include turn_id for turn-based evaluations.
+        'evaluation_id' => $response->turn_id ?? null,
         'answeritems' => $answeritems,
         'answeritemsjson' => htmlspecialchars($answeritemsjson, ENT_QUOTES, 'UTF-8'), // For JavaScript reconstruction.
         'answer' => htmlspecialchars($fulltext, ENT_QUOTES, 'UTF-8'), // Escape for data attribute.
         'displayanswer' => htmlspecialchars($displaytext, ENT_QUOTES, 'UTF-8'), // Escape for display.
         'islong' => $islong,
         'timecreated' => $timecreatedstr,
+        'timecreated_ts' => $response->timecreated,
         'timemodified' => $timemodifiedstr,
         'was_edited' => $response->was_edited ?? false,
         'edit_count' => $response->edit_count ?? 1,
@@ -520,10 +619,82 @@ foreach ($responses as $response) {
     ];
 }
 
-// Merge conversations into responses list as special entries.
-// Conversations are treated as a special type of response.
+// Build display list with grouped aichat evaluations.
+$displaylist = [];
+$entries = [];
+$grouped = [];
+foreach ($responseslist as $item) {
+    if ($item['pagetype'] === 'aichat') {
+        $evalkey = $item['userid'] . '_' . $item['pageid'] . '_' . ($item['evaluation_id'] ?? 'null');
+        if (!isset($grouped[$evalkey])) {
+            $grouped[$evalkey] = [];
+        }
+        $grouped[$evalkey][] = $item;
+    } else {
+        $entries[] = [
+            'type' => 'response',
+            'sort_user' => $item['user'],
+            'sort_time' => $item['timecreated_ts'] ?? 0,
+            'item' => $item
+        ];
+    }
+}
+
+foreach ($grouped as $key => $items) {
+    $meta = $evaluationmeta[$key] ?? null;
+    $entries[] = [
+        'type' => 'group',
+        'sort_user' => $items[0]['user'],
+        'sort_time' => $meta['timecreated'] ?? ($items[0]['timecreated_ts'] ?? 0),
+        'groupkey' => $key,
+        'meta' => $meta,
+        'items' => $items
+    ];
+}
+
+usort($entries, function($a, $b) {
+    $userCmp = strcmp($a['sort_user'], $b['sort_user']);
+    if ($userCmp !== 0) {
+        return $userCmp;
+    }
+    return $a['sort_time'] <=> $b['sort_time'];
+});
+
+foreach ($entries as $entry) {
+    if ($entry['type'] === 'response') {
+        $displaylist[] = $entry['item'];
+        continue;
+    }
+    $meta = $entry['meta'];
+    $items = $entry['items'];
+    usort($items, function($a, $b) {
+        return strcmp($a['question'], $b['question']);
+    });
+    $displaylist[] = [
+        'is_group_header' => true,
+        'user' => $entry['sort_user'],
+        'question' => get_string('pagechatevaluation', 'mod_harpiasurvey'),
+        'questiontype' => $meta['conversationtypelabel'] ?? '',
+        'conversationtypelabel' => $meta['conversationtypelabel'] ?? '',
+        'modelnamesstr' => $meta['modelnamesstr'] ?? '',
+        'turn_id' => $meta['evaluation_id'] ?? '',
+        'preview' => $meta['preview'] ?? '',
+        'messagecount' => $meta['messagecount'] ?? 0,
+        'messagesjson' => $meta['messagesjson'] ?? '[]',
+        'timecreated' => $meta['timecreated_str'] ?? '',
+        'timelast' => $meta['timelast_str'] ?? '',
+        'was_edited' => false,
+        'is_latest' => true
+    ];
+    foreach ($items as $item) {
+        $displaylist[] = $item;
+    }
+}
+
+// Build CSV list (responses + conversations).
+$responsesforcsv = $responseslist;
 foreach ($conversationslist as $conv) {
-    $responseslist[] = [
+    $responsesforcsv[] = [
         'id' => $conv['id'],
         'user' => $conv['user'],
         'userid' => $conv['userid'],
@@ -538,8 +709,8 @@ foreach ($conversationslist as $conv) {
         'models' => $conv['models'],
         'modelnames' => $conv['modelnames'],
         'modelnamesstr' => $conv['modelnamesstr'],
-        'evaluatesconversation' => '', // Conversations don't evaluate other conversations
-        'turn_id' => null, // Conversations don't have turn_id at top level (messages have turn_id)
+        'evaluatesconversation' => '',
+        'turn_id' => null,
         'isconversation' => true,
         'messagecount' => $conv['messagecount'],
         'preview' => $conv['preview'],
@@ -547,10 +718,9 @@ foreach ($conversationslist as $conv) {
         'messagesjson' => $conv['messagesjson'],
         'timecreated' => $conv['timecreated'],
         'timelast' => $conv['timelast'],
-        'was_edited' => false, // Conversations don't have edit tracking
+        'was_edited' => false,
         'edit_count' => 1,
         'is_latest' => true,
-        // Empty fields for compatibility
         'answeritems' => [],
         'answeritemsjson' => '[]',
         'answer' => '',
@@ -558,19 +728,6 @@ foreach ($conversationslist as $conv) {
         'islong' => false
     ];
 }
-
-// Sort by user, then by question, then by time
-usort($responseslist, function($a, $b) {
-    $userCmp = strcmp($a['user'], $b['user']);
-    if ($userCmp !== 0) {
-        return $userCmp;
-    }
-    $questionCmp = strcmp($a['question'], $b['question']);
-    if ($questionCmp !== 0) {
-        return $questionCmp;
-    }
-    return strcmp($a['timecreated'], $b['timecreated']);
-});
 
 // Handle CSV download.
 if ($download === 'csv') {
@@ -601,7 +758,7 @@ if ($download === 'csv') {
     $csvexport->add_data($headers);
     
     // Export all data
-    foreach ($responseslist as $item) {
+    foreach ($responsesforcsv as $item) {
         if (isset($item['isconversation']) && $item['isconversation']) {
             // For conversations, export each message as a separate row
             foreach ($item['messages'] as $msg) {
@@ -669,7 +826,7 @@ if ($download === 'csv') {
 
 // Create and render stats table.
 require_once(__DIR__.'/classes/output/stats_table.php');
-$statstable = new \mod_harpiasurvey\output\stats_table($responseslist, $context);
+$statstable = new \mod_harpiasurvey\output\stats_table($displaylist, $context);
 $renderer = $PAGE->get_renderer('mod_harpiasurvey');
 $tablehtml = $renderer->render_stats_table($statstable);
 

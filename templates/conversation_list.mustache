@@ -5,30 +5,30 @@
 }}
 <div class="conversation-list">
     {{#roots}}
-    <div class="conversation-item card mb-3 border-left-primary shadow-sm" data-root-turn-id="{{turn_id}}" {{#conversation_id}}data-conversation-id="{{conversation_id}}"{{/conversation_id}} style="cursor: pointer; transition: all 0.2s; border-left-width: 4px !important;" onmouseover="this.style.transform='translateX(2px)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.15)'" onmouseout="this.style.transform='translateX(0)'; this.style.boxShadow='0 2px 4px rgba(0,0,0,0.1)'">
-        <div class="card-body p-3">
+    <div class="conversation-item card mb-2 border-left-primary shadow-sm" data-root-turn-id="{{turn_id}}" {{#conversation_id}}data-conversation-id="{{conversation_id}}"{{/conversation_id}} style="cursor: pointer; transition: all 0.2s; border-left-width: 4px !important;" onmouseover="this.style.transform='translateX(2px)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.15)'" onmouseout="this.style.transform='translateX(0)'; this.style.boxShadow='0 2px 4px rgba(0,0,0,0.1)'">
+        <div class="card-body p-2">
             <div class="d-flex justify-content-between align-items-center">
                 <div class="d-flex align-items-center flex-grow-1">
-                    <div class="icon-circle bg-primary text-white mr-3 rounded-circle d-flex align-items-center justify-content-center shadow-sm" style="width: 40px; height: 40px; flex-shrink: 0;">
+                    <div class="icon-circle bg-primary text-white mr-2 rounded-circle d-flex align-items-center justify-content-center shadow-sm" style="width: 34px; height: 34px; flex-shrink: 0;">
                         <i class="fa fa-comments fa-sm"></i>
                     </div>
                     <div class="flex-grow-1 min-w-0">
-                        <h6 class="mb-1 font-weight-bold text-truncate" style="color: #495057;">
+                        <h6 class="mb-0 font-weight-bold text-truncate" style="color: #495057; font-size: 0.95rem;">
                             {{#str}}conversation, mod_harpiasurvey{{/str}} {{conversation_number}}
                         </h6>
-                        <div class="small text-muted d-flex align-items-center">
+                        <div class="small text-muted d-flex align-items-center" style="line-height: 1.2;">
                             <i class="fa fa-clock-o mr-1" aria-hidden="true"></i>
                             <span>{{timecreated_str}}</span>
                         </div>
                         {{#turn_count}}
-                        <div class="small text-muted mt-1">
+                        <div class="small text-muted" style="line-height: 1.2;">
                             <i class="fa fa-code-branch mr-1" aria-hidden="true"></i>
                             <span>{{turn_count}} {{#str}}turns, mod_harpiasurvey{{/str}}</span>
                         </div>
                         {{/turn_count}}
                     </div>
                 </div>
-                <i class="fa fa-chevron-right text-muted ml-2" style="font-size: 0.875rem;"></i>
+                <i class="fa fa-chevron-right text-muted ml-2" style="font-size: 0.8rem;"></i>
             </div>
         </div>
     </div>

@@ -151,6 +151,7 @@
         <FIELD NAME="subpageid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="ID of the subpage."/>
         <FIELD NAME="questionid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="ID of the question."/>
         <FIELD NAME="enabled" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="Whether the question is enabled on this subpage (0 = disabled, 1 = enabled)."/>
+        <FIELD NAME="required" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="Whether the question is required before navigating (0 = optional, 1 = required)."/>
         <FIELD NAME="turn_visibility_type" TYPE="char" LENGTH="50" NOTNULL="true" DEFAULT="all_turns" SEQUENCE="false" COMMENT="Visibility type: first_turn, specific_turn, all_turns."/>
         <FIELD NAME="turn_number" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Turn number for specific_turn visibility (NULL for other types)."/>
         <FIELD NAME="sortorder" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Sort order for displaying questions on the subpage."/>
@@ -204,6 +205,7 @@
         <FIELD NAME="pageid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="ID of the page."/>
         <FIELD NAME="questionid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="ID of the question."/>
         <FIELD NAME="enabled" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="Whether the question is enabled on this page (0 = disabled, 1 = enabled)."/>
+        <FIELD NAME="required" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="Whether the question is required before navigating (0 = optional, 1 = required)."/>
         <FIELD NAME="sortorder" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Sort order for displaying questions on the page."/>
         <FIELD NAME="min_turn" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Minimum turn number for this question to appear (NULL or 1 = appears from first turn, 2 = from second turn, etc.). Only used for aichat pages with turns mode."/>
         <FIELD NAME="show_only_turn" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Show question only on this specific turn number (NULL = show on all turns, N = show only on turn N). Only used for aichat pages with turns mode."/>
@@ -240,6 +242,28 @@
       </KEYS>
       <INDEXES>
         <INDEX NAME="unique_user_page_question" UNIQUE="true" FIELDS="userid, pageid, questionid, turn_id" COMMENT="Ensure each user can only have one response per question per page per turn."/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="harpiasurvey_response_history" COMMENT="Stores save history for question responses.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="responseid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="ID of the response record (if available)."/>
+        <FIELD NAME="pageid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="ID of the page."/>
+        <FIELD NAME="questionid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="ID of the question."/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="ID of the user who saved the response."/>
+        <FIELD NAME="response" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Saved response value (can be JSON for multiple choice)."/>
+        <FIELD NAME="turn_id" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Turn ID for turn evaluation responses (NULL for regular questions)."/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Timestamp of when this response was saved."/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_page" TYPE="foreign" FIELDS="pageid" REFTABLE="harpiasurvey_pages" REFFIELDS="id"/>
+        <KEY NAME="fk_question" TYPE="foreign" FIELDS="questionid" REFTABLE="harpiasurvey_questions" REFFIELDS="id"/>
+        <KEY NAME="fk_user" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+        <KEY NAME="fk_response" TYPE="foreign" FIELDS="responseid" REFTABLE="harpiasurvey_responses" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="idx_page_user_question_turn" UNIQUE="false" FIELDS="pageid, userid, questionid, turn_id"/>
       </INDEXES>
     </TABLE>
     <TABLE NAME="harpiasurvey_conversations" COMMENT="Stores conversation messages for AI conversation questions.">

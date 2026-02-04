@@ -127,6 +127,49 @@ define(['jquery'], function($) {
                 collapseText.show();
             }
         });
+
+        // Handle modal for evaluation messages.
+        $(document).on('click', '.view-eval-messages-btn', function() {
+            const button = $(this);
+            const messagesJson = button.attr('data-messages');
+            let messages = [];
+            if (messagesJson) {
+                try {
+                    messages = JSON.parse(messagesJson);
+                } catch (e) {
+                    // eslint-disable-next-line no-console
+                    console.error('Error parsing messages JSON:', e);
+                }
+            }
+
+            const modalBody = $('#harpiasurvey-messages-modal-body');
+            if (messages.length === 0) {
+                modalBody.html('<div class="text-muted text-center py-3">No messages yet.</div>');
+            } else {
+                let html = '<div class="border rounded p-3" style="background-color: #f8f9fa; max-height: 60vh; overflow-y: auto;">';
+                messages.forEach(function(msg) {
+                    const time = msg.timecreated || '';
+                    const model = msg.modelname ? (' <small class="text-muted">(' + $('<div>').text(msg.modelname).html() + ')</small>') : '';
+                    if (msg.role && msg.role.user) {
+                        html += '<div class="message mb-3 text-right">';
+                        html += '<div class="d-inline-block p-2 rounded bg-primary text-white" style="max-width: 80%;">';
+                        html += '<div class="message-content">' + (msg.content || '') + '</div>';
+                        html += '<small class="text-white-50 d-block mt-1">' + $('<div>').text(time).html() + model + '</small>';
+                        html += '</div></div>';
+                    } else if (msg.role && msg.role.assistant) {
+                        html += '<div class="message mb-3 text-left">';
+                        html += '<div class="d-inline-block p-2 rounded bg-light border" style="max-width: 80%;">';
+                        html += '<div class="message-content">' + (msg.content || '') + '</div>';
+                        html += '<small class="text-muted d-block mt-1">' + $('<div>').text(time).html() + model + '</small>';
+                        html += '</div></div>';
+                    }
+                });
+                html += '</div>';
+                modalBody.html(html);
+            }
+
+            $('#harpiasurvey-messages-modal').modal('show');
+        });
     }
 
     return {

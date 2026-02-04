@@ -148,15 +148,29 @@ if ($form->is_cancelled()) {
         $DB->update_record('harpiasurvey_subpages', $subpagedata);
         $subpageid = $data->id;
         
-        // Handle question enabled states.
-        if (isset($data->question_enabled) && is_array($data->question_enabled)) {
+        // Handle question enabled/required states.
+        if ((isset($data->question_enabled) && is_array($data->question_enabled)) ||
+            (isset($data->question_required) && is_array($data->question_required))) {
             // Get all subpage questions.
             $subpagequestions = $DB->get_records('harpiasurvey_subpage_questions', ['subpageid' => $data->id]);
             
             foreach ($subpagequestions as $sq) {
-                $enabled = isset($data->question_enabled[$sq->id]) ? 1 : 0;
-                if ($sq->enabled != $enabled) {
-                    $sq->enabled = $enabled;
+                $updated = false;
+                if (isset($data->question_enabled) && is_array($data->question_enabled)) {
+                    $enabled = isset($data->question_enabled[$sq->id]) ? 1 : 0;
+                    if ($sq->enabled != $enabled) {
+                        $sq->enabled = $enabled;
+                        $updated = true;
+                    }
+                }
+                if (isset($data->question_required) && is_array($data->question_required)) {
+                    $required = isset($data->question_required[$sq->id]) ? 1 : 0;
+                    if (!isset($sq->required) || (int)$sq->required !== $required) {
+                        $sq->required = $required;
+                        $updated = true;
+                    }
+                }
+                if ($updated) {
                     $DB->update_record('harpiasurvey_subpage_questions', $sq);
                 }
             }
@@ -181,4 +195,3 @@ echo $OUTPUT->header();
 echo $OUTPUT->heading($pagetitle);
 $form->display();
 echo $OUTPUT->footer();
-

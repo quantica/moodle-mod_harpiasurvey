@@ -64,6 +64,7 @@ if ($questionid) {
         $subpagequestion->sortorder = ($maxsort !== false) ? $maxsort + 1 : 0;
         $subpagequestion->timecreated = time();
         $subpagequestion->enabled = 1; // Default to enabled.
+        $subpagequestion->required = 1; // Default to required to match existing behavior.
         
         $DB->insert_record('harpiasurvey_subpage_questions', $subpagequestion);
     }
@@ -168,4 +169,3 @@ echo html_writer::link($backurl, get_string('back', 'mod_harpiasurvey'), ['class
 echo html_writer::end_tag('div');
 
 echo $OUTPUT->footer();
-

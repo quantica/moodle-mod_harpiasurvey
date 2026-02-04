@@ -29,6 +29,53 @@ import $ from 'jquery';
 let initialized = false;
 
 /**
+ * Get a human-readable response display for a question.
+ *
+ * @param {jQuery} questionItem Question container
+ * @param {string} questionType Question type
+ * @return {string} Display text
+ */
+const getResponseDisplay = (questionItem, questionType) => {
+    let display = '';
+
+    if (questionType === 'singlechoice' || questionType === 'likert') {
+        const checked = questionItem.find('input[type="radio"]:checked');
+        if (checked.length > 0) {
+            const id = checked.attr('id');
+            const label = id ? questionItem.find(`label[for="${id}"]`).text().trim() : '';
+            display = label || checked.val();
+        }
+    } else if (questionType === 'multiplechoice') {
+        const labels = [];
+        questionItem.find('input[type="checkbox"]:checked').each(function() {
+            const id = $(this).attr('id');
+            const label = id ? questionItem.find(`label[for="${id}"]`).text().trim() : '';
+            labels.push(label || $(this).val());
+        });
+        display = labels.join(', ');
+    } else if (questionType === 'select') {
+        const select = questionItem.find('select');
+        const selected = select.find('option:selected');
+        display = selected.length ? selected.text().trim() : '';
+    } else if (questionType === 'number') {
+        const input = questionItem.find('input[type="number"]');
+        display = input.val();
+    } else if (questionType === 'shorttext') {
+        const input = questionItem.find('input[type="text"]');
+        display = input.val();
+    } else if (questionType === 'longtext') {
+        const textarea = questionItem.find('textarea');
+        display = textarea.val();
+    }
+
+    if (!display) {
+        return '-';
+    }
+
+    return display;
+};
+
+/**
  * Initialize the save response functionality.
  *
  */
@@ -52,11 +99,13 @@ export const init = () => {
         const button = $(this);
         const cmid = parseInt(button.data('cmid'), 10);
         const pageid = parseInt(button.data('pageid'), 10);
-        const statusDiv = $('.save-all-status');
+        const container = button.closest('.page-questions');
+        const statusDiv = container.length ? container.find('.save-all-status') : $('.save-all-status');
 
         // Collect all questions and their responses.
         const questionsToSave = [];
-        $('.question-item').each(function() {
+        const questionItems = container.length ? container.find('.question-item') : $('.question-item');
+        questionItems.each(function() {
             const questionItem = $(this);
 
             const questionid = parseInt(questionItem.data('questionid'), 10);
@@ -70,32 +119,35 @@ export const init = () => {
             let response = '';
 
             if (questiontype === 'singlechoice' || questiontype === 'likert') {
-                const selected = $(`input[name="question_${questionid}"]:checked`);
+                const selected = questionItem.find('input[type="radio"]:checked');
                 if (selected.length > 0) {
                     response = selected.val();
                 }
             } else if (questiontype === 'multiplechoice') {
-                const selected = $(`input[name="question_${questionid}[]"]:checked`);
+                const selected = questionItem.find('input[type="checkbox"]:checked');
                 const values = [];
                 selected.each(function() {
                     values.push($(this).val());
                 });
                 response = JSON.stringify(values);
             } else if (questiontype === 'select') {
-                const selected = $(`#question_${questionid}`).val();
+                const selected = questionItem.find('select').val();
                 if (selected) {
                     response = selected;
                 }
             } else if (questiontype === 'number' || questiontype === 'shorttext') {
-                response = $(`#question_${questionid}`).val();
+                const input = questionItem.find('input[type="number"], input[type="text"]');
+                response = input.val();
             } else if (questiontype === 'longtext') {
-                response = $(`#question_${questionid}`).val();
+                const textarea = questionItem.find('textarea');
+                response = textarea.val();
             }
 
             questionsToSave.push({
                 questionid: questionid,
                 questiontype: questiontype,
-                response: response
+                response: response,
+                questionItem: questionItem
             });
         });
 
@@ -128,7 +180,7 @@ const saveAllResponses = (cmid, pageid, questionsToSave, button, statusDiv) => {
     button.prop('disabled', true);
     statusDiv.show().html('<div class="text-info"><i class="fa fa-spinner fa-spin"></i> Saving responses...</div>');
 
-    // Check if this is a turns mode page and get current turn.
+    // Check if this is a turns/continuous mode page and get current iteration.
     // The button might be outside the ai-conversation-container, so search from document.
     const container = $('.ai-conversation-container[data-pageid="' + pageid + '"]');
     let turnId = null;
@@ -161,6 +213,12 @@ const saveAllResponses = (cmid, pageid, questionsToSave, button, statusDiv) => {
                     // If no messages container found, default to turn 1 (first turn).
                     turnId = 1;
                 }
+            }
+        } else if (behavior === 'continuous') {
+            const viewingConversation = container.data('viewing-conversation') ||
+                parseInt(container.attr('data-viewing-conversation'), 10);
+            if (viewingConversation && !isNaN(viewingConversation)) {
+                turnId = parseInt(viewingConversation, 10);
             }
         }
     }
@@ -210,10 +268,9 @@ const saveAllResponses = (cmid, pageid, questionsToSave, button, statusDiv) => {
                         const datetimeStr = now.toLocaleString();
                         getString('saved', 'mod_harpiasurvey').then((savedText) => {
                             getString('on', 'mod_harpiasurvey').then((onText) => {
-                                const questionSelector = `.question-item[data-questionid="${questionData.questionid}"]`;
-                                const savedSelector = `.saved-response-message[data-questionid="${questionData.questionid}"]`;
-                                const questionItem = $(questionSelector);
-                                const savedMessage = questionItem.find(savedSelector);
+                                const questionItem = questionData.questionItem ? $(questionData.questionItem) :
+                                    $(`.question-item[data-questionid="${questionData.questionid}"]`);
+                                const savedMessage = questionItem.find(`.saved-response-message[data-questionid="${questionData.questionid}"]`);
                                 const icon = '<i class="fa fa-check-circle" aria-hidden="true"></i>';
                                 if (savedMessage.length === 0) {
                                     // Create new message element.
@@ -225,6 +282,28 @@ const saveAllResponses = (cmid, pageid, questionsToSave, button, statusDiv) => {
                                     // Update existing message timestamp.
                                     savedMessage.html(`${icon} ${savedText} ${onText} ${datetimeStr}`);
                                 }
+
+                                // Update history timeline.
+                                getString('answerhistory', 'mod_harpiasurvey').then((historyText) => {
+                                    let history = questionItem.find(`.answer-history[data-questionid="${questionData.questionid}"]`);
+                                    if (history.length === 0) {
+                                        const details = $('<details class="answer-history mt-1 d-none"></details>');
+                                        details.attr('data-questionid', questionData.questionid);
+                                        details.append(`<summary>${historyText} (1)</summary>`);
+                                        details.append('<ul class="list-unstyled mt-2 mb-0"></ul>');
+                                        questionItem.append(details);
+                                        history = details;
+                                    }
+                                    const list = history.find('ul');
+                                    const responseDisplay = getResponseDisplay(questionItem, questionData.questiontype);
+                                    list.prepend(`<li class="mb-1"><span class="text-muted">${datetimeStr}</span> — ${$('<div>').text(responseDisplay).html()}</li>`);
+
+                                    const count = list.find('li').length;
+                                    history.find('summary').text(`${historyText} (${count})`);
+                                    if (count > 1) {
+                                        history.removeClass('d-none');
+                                    }
+                                });
                             });
                         });
                     } else {

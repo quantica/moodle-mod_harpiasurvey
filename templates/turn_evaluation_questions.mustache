@@ -3,13 +3,19 @@
     Similar to regular questions but with turn-specific naming.
 }}
 {{#has_questions}}
+    <div class="turn-evaluation-questions" data-turn-id="{{turn_id}}">
     <div class="turn-evaluation-questions-content">
         <small class="text-muted d-block mb-2">
-            <strong>{{#str}}evaluateturn, mod_harpiasurvey{{/str}}</strong>
+            {{#is_qa_mode}}
+                <strong>{{#str}}evaluateanswer, mod_harpiasurvey{{/str}}</strong>
+            {{/is_qa_mode}}
+            {{^is_qa_mode}}
+                <strong>{{#str}}evaluateturn, mod_harpiasurvey{{/str}}</strong>
+            {{/is_qa_mode}}
         </small>
         {{#questions}}
-            <div class="question-item mb-3" data-questionid="{{id}}" data-questiontype="{{type}}">
-                <h6 class="mb-2">{{name}}</h6>
+            <div class="question-item mb-3" data-questionid="{{id}}" data-questiontype="{{type}}" data-required="{{required}}">
+                <h6 class="mb-2">{{name}}{{#is_required}} <span class="text-danger">*</span>{{/is_required}}</h6>
                 <div class="question-description mb-2">
                     {{{description}}}
                 </div>
@@ -76,5 +82,5 @@
             {{#str}}save, mod_harpiasurvey{{/str}}
         </button>
     </div>
+    </div>
 {{/has_questions}}
-

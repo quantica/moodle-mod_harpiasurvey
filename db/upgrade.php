@@ -542,5 +542,52 @@ function xmldb_harpiasurvey_upgrade($oldversion) {
         upgrade_mod_savepoint(true, 202501280031, 'harpiasurvey');
     }
 
+    if ($oldversion < 202501280032) {
+        // Add required field to page and subpage question mappings.
+        $table = new xmldb_table('harpiasurvey_page_questions');
+        $field = new xmldb_field('required', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, 1, 'enabled');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $table = new xmldb_table('harpiasurvey_subpage_questions');
+        $field = new xmldb_field('required', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, 1, 'enabled');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        // Default existing questions to required to preserve current behavior.
+        $DB->execute("UPDATE {harpiasurvey_page_questions} SET required = 1 WHERE required IS NULL");
+        $DB->execute("UPDATE {harpiasurvey_subpage_questions} SET required = 1 WHERE required IS NULL");
+
+        upgrade_mod_savepoint(true, 202501280032, 'harpiasurvey');
+    }
+
+    if ($oldversion < 202501280033) {
+        // Create response history table.
+        $table = new xmldb_table('harpiasurvey_response_history');
+        if (!$dbman->table_exists($table)) {
+            $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+            $table->add_field('responseid', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
+            $table->add_field('pageid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+            $table->add_field('questionid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+            $table->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+            $table->add_field('response', XMLDB_TYPE_TEXT, null, null, null, null, null);
+            $table->add_field('turn_id', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
+            $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, 0);
+
+            $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+            $table->add_key('fk_page', XMLDB_KEY_FOREIGN, ['pageid'], 'harpiasurvey_pages', ['id']);
+            $table->add_key('fk_question', XMLDB_KEY_FOREIGN, ['questionid'], 'harpiasurvey_questions', ['id']);
+            $table->add_key('fk_user', XMLDB_KEY_FOREIGN, ['userid'], 'user', ['id']);
+            $table->add_key('fk_response', XMLDB_KEY_FOREIGN, ['responseid'], 'harpiasurvey_responses', ['id']);
+            $table->add_index('idx_page_user_question_turn', XMLDB_INDEX_NOTUNIQUE, ['pageid', 'userid', 'questionid', 'turn_id']);
+
+            $dbman->create_table($table);
+        }
+
+        upgrade_mod_savepoint(true, 202501280033, 'harpiasurvey');
+    }
+
     return true;
 }

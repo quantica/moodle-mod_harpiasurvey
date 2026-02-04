@@ -4,21 +4,32 @@
     Template for conversation detail view (tree).
 }}
 <div class="conversation-detail h-100 d-flex flex-column">
-    <div class="detail-header mb-3 pb-2 border-bottom d-flex align-items-center">
-        <button type="button" class="btn btn-sm btn-outline-secondary back-to-list-btn mr-2" data-pageid="{{pageid}}" title="{{#str}}backtolist, mod_harpiasurvey{{/str}}">
-            <i class="fa fa-arrow-left mr-1"></i>
-            <span class="d-none d-sm-inline">{{#str}}back, moodle{{/str}}</span>
-        </button>
-        <div class="flex-grow-1">
-            <h6 class="mb-0 font-weight-bold text-primary">
+    <div class="detail-header mb-2 pb-2 border-bottom">
+        <div class="d-flex align-items-center mb-1">
+            <button type="button" class="btn btn-xs btn-outline-secondary back-to-list-btn mr-2" data-pageid="{{pageid}}" title="{{#str}}backtolist, mod_harpiasurvey{{/str}}" style="padding: 0.15rem 0.45rem;">
+                <i class="fa fa-arrow-left mr-1"></i>
+                <span class="d-none d-sm-inline">{{#str}}back, moodle{{/str}}</span>
+            </button>
+            {{#show_branch_back}}
+                <button type="button" class="btn btn-xs btn-outline-secondary back-to-parent-branch-btn mr-2" data-pageid="{{pageid}}" style="padding: 0.15rem 0.45rem;">
+                    <i class="fa fa-level-up mr-1"></i>
+                    <span class="d-none d-sm-inline">{{#str}}backtobranch, mod_harpiasurvey{{/str}}</span>
+                </button>
+            {{/show_branch_back}}
+            <div class="flex-grow-1"></div>
+        </div>
+        <div class="text-muted" style="font-size: 0.78rem; line-height: 1.2;">
+            <div class="font-weight-bold text-primary" style="font-size: 0.9rem;">
                 <i class="fa fa-comments mr-1" aria-hidden="true"></i>
                 {{#str}}conversation, mod_harpiasurvey{{/str}} {{conversation_number}}
-            </h6>
-            <small class="text-muted d-block">{{#str}}conversationtree, mod_harpiasurvey{{/str}}</small>
-            <small class="text-muted d-flex align-items-center mt-1">
+            </div>
+            {{#branch_root_turn}}
+                <div>{{#str}}branchofturn, mod_harpiasurvey{{/str}} {{branch_root_turn}}</div>
+            {{/branch_root_turn}}
+            <div class="d-flex align-items-center mt-1">
                 <i class="fa fa-code-branch text-success mr-1" aria-hidden="true"></i>
                 <span>Click "Branch" on any turn to fork a new path from that point.</span>
-            </small>
+            </div>
         </div>
     </div>
     
@@ -32,8 +43,8 @@
     </div>
     {{#root_node.can_create_branch}}
     <div class="detail-footer mt-2 pt-2 border-top">
-        <button type="button" class="btn btn-sm btn-success btn-block create-direct-branch-btn" data-pageid="{{pageid}}" data-cmid="{{cmid}}" data-root-turn-id="{{root_turn_id}}">
-            <i class="fa fa-code-branch" aria-hidden="true"></i> {{#str}}createdirectbranch, mod_harpiasurvey{{/str}}
+        <button type="button" class="btn btn-xs btn-success btn-block create-direct-branch-btn" data-pageid="{{pageid}}" data-cmid="{{cmid}}" data-root-turn-id="{{root_turn_id}}" style="padding: 0.2rem 0.5rem;">
+            <i class="fa fa-code-branch" aria-hidden="true"></i> {{#str}}createturninsubtree, mod_harpiasurvey{{/str}}
         </button>
     </div>
     {{/root_node.can_create_branch}}

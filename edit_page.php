@@ -234,6 +234,27 @@ if ($form->is_cancelled()) {
                     $updated = true;
                 }
             }
+
+            // Update required state (if checkbox data is provided).
+            if (isset($data->question_required) && is_array($data->question_required)) {
+                $required = isset($data->question_required[$pq->id]) ? 1 : 0;
+                if (!isset($pq->required) || (int)$pq->required !== $required) {
+                    $pq->required = $required;
+                    $updated = true;
+                }
+            } else if (isset($_POST['question_required']) && is_array($_POST['question_required']) && array_key_exists($pq->id, $_POST['question_required'])) {
+                $required = isset($_POST['question_required'][$pq->id]) ? 1 : 0;
+                if (!isset($pq->required) || (int)$pq->required !== $required) {
+                    $pq->required = $required;
+                    $updated = true;
+                }
+            } else if (isset($_POST['question_required']) && is_array($_POST['question_required'])) {
+                $required = isset($_POST['question_required'][$pq->id]) ? 1 : 0;
+                if (!isset($pq->required) || (int)$pq->required !== $required) {
+                    $pq->required = $required;
+                    $updated = true;
+                }
+            }
             
             // Update show_only_turn field (always check, even if enabled checkbox wasn't touched).
             // HTML fields need to be extracted from $_POST as they're not in $data automatically.
@@ -390,4 +411,3 @@ echo $OUTPUT->heading($pagetitle);
 $form->display();
 
 echo $OUTPUT->footer();
-

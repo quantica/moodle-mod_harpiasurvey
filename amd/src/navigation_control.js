@@ -39,6 +39,16 @@ const areAllQuestionsAnswered = () => {
     $('.question-item').each(function() {
         const questionItem = $(this);
         const questionType = questionItem.data('questiontype');
+        const required = questionItem.data('required');
+        const isRequired = required === 1 || required === true || required === '1';
+
+        if (!isRequired) {
+            return;
+        }
+
+        if (!questionItem.is(':visible')) {
+            return;
+        }
 
         // Skip AI conversation questions as they don't need to be answered before navigation.
         if (questionType === 'aiconversation') {
@@ -77,7 +87,7 @@ const areAllQuestionsAnswered = () => {
 
         if (!hasAnswer) {
             allAnswered = false;
-            const questionName = questionItem.find('h5').text() || 'Question';
+            const questionName = questionItem.find('h5, h6').first().text() || 'Question';
             unansweredQuestions.push(questionName);
         }
     });
@@ -115,31 +125,46 @@ export const init = (canmanage = false) => {
         return;
     }
 
-    if (navigationMode !== 'only_forward') {
-        // Free navigation mode - no restrictions.
-        initialized = true;
-        return;
-    }
-
-    // Only forward mode - add validation.
+    // Add validation for required questions when navigating.
     $(document).on('click', '.navigation-next-link', function(e) {
         e.preventDefault();
         const link = $(this);
-        const pageid = link.data('pageid');
 
-        // Check if all questions are answered.
-        const result = areAllQuestionsAnswered(pageid);
+        // Check if all required questions are answered.
+        const result = areAllQuestionsAnswered();
 
         if (!result.allAnswered) {
             // Show alert.
             getString('questionsmustbeanswered', 'mod_harpiasurvey').then((message) => {
-                alert(message);
+                const detail = result.unansweredQuestions.length ? '\n\n' + result.unansweredQuestions.join('\n') : '';
+                alert(message + detail);
             });
             return false;
         }
 
         // All questions answered - proceed to next page.
         window.location.href = link.attr('href');
+    });
+
+    // Guard any pagination link (previous/numbered) with required question check.
+    $(document).on('click', '.pagination a.page-link', function(e) {
+        const link = $(this);
+        if (link.hasClass('navigation-next-link')) {
+            return;
+        }
+        if (link.closest('li').hasClass('active')) {
+            return;
+        }
+        const result = areAllQuestionsAnswered();
+        if (!result.allAnswered) {
+            e.preventDefault();
+            getString('questionsmustbeanswered', 'mod_harpiasurvey').then((message) => {
+                const detail = result.unansweredQuestions.length ? '\n\n' + result.unansweredQuestions.join('\n') : '';
+                alert(message + detail);
+            });
+            return false;
+        }
+        return true;
     });
 
     // Prevent clicking on page tabs for previous pages in only_forward mode.
@@ -155,11 +180,6 @@ export const init = (canmanage = false) => {
 
         // Only apply restrictions in only_forward mode.
         const navMode = navBar.data('navigation-mode');
-
-        if (navMode !== 'only_forward') {
-            // Free navigation - allow all tab clicks.
-            return;
-        }
 
         const link = $(this);
         const pageid = link.data('pageid');
@@ -178,21 +198,21 @@ export const init = (canmanage = false) => {
             }
         });
 
-        // If clicking on a previous page, prevent navigation.
-        if (clickedIndex >= 0 && currentIndex >= 0 && clickedIndex < currentIndex) {
+        // If clicking on a previous page in only_forward mode, prevent navigation.
+        if (navMode === 'only_forward' && clickedIndex >= 0 && currentIndex >= 0 && clickedIndex < currentIndex) {
             e.preventDefault();
             return false;
         }
 
-        // If clicking on a future page, check if all questions are answered on current page.
-        if (clickedIndex >= 0 && currentIndex >= 0 && clickedIndex > currentIndex) {
-            // Check if all questions are answered on current page.
-            const result = areAllQuestionsAnswered(currentPageId);
+        // Check required questions before navigating to a different page.
+        if (clickedIndex >= 0 && currentIndex >= 0 && clickedIndex !== currentIndex) {
+            const result = areAllQuestionsAnswered();
 
             if (!result.allAnswered) {
                 e.preventDefault();
                 getString('questionsmustbeanswered', 'mod_harpiasurvey').then((message) => {
-                    alert(message);
+                    const detail = result.unansweredQuestions.length ? '\n\n' + result.unansweredQuestions.join('\n') : '';
+                    alert(message + detail);
                 });
                 return false;
             }

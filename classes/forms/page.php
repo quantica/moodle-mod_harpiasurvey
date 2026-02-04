@@ -249,7 +249,7 @@ class page extends \moodleform {
             global $DB, $OUTPUT;
             
             $pagequestions = $DB->get_records_sql(
-                "SELECT pq.id, pq.pageid, pq.questionid, pq.enabled, pq.sortorder, pq.timecreated,
+                "SELECT pq.id, pq.pageid, pq.questionid, pq.enabled, pq.required, pq.sortorder, pq.timecreated,
                         pq.min_turn, pq.show_only_turn, pq.hide_on_turn, pq.show_only_model, pq.hide_on_model,
                         q.name, q.type
                    FROM {harpiasurvey_page_questions} pq
@@ -286,6 +286,7 @@ class page extends \moodleform {
                 $questionstable .= '<th scope="col">' . get_string('question', 'mod_harpiasurvey') . '</th>';
                 $questionstable .= '<th scope="col">' . get_string('type', 'mod_harpiasurvey') . '</th>';
                 $questionstable .= '<th scope="col">' . get_string('enabled', 'mod_harpiasurvey') . '</th>';
+                $questionstable .= '<th scope="col">' . get_string('required') . '</th>';
                 if ($showturnfields) {
                     $questionstable .= '<th scope="col">' . get_string('showonlyturn', 'mod_harpiasurvey') . '</th>';
                     $questionstable .= '<th scope="col">' . get_string('hideonturn', 'mod_harpiasurvey') . '</th>';
@@ -309,6 +310,13 @@ class page extends \moodleform {
                     $enabledchecked = $pq->enabled ? 'checked' : '';
                     $questionstable .= '<td>';
                     $questionstable .= '<input type="checkbox" id="' . $enabledid . '" name="question_enabled[' . $pq->id . ']" value="1" ' . $enabledchecked . '>';
+                    $questionstable .= '</td>';
+
+                    // Required checkbox.
+                    $requiredid = 'question_required_' . $pq->id;
+                    $requiredchecked = $pq->required ? 'checked' : '';
+                    $questionstable .= '<td>';
+                    $questionstable .= '<input type="checkbox" id="' . $requiredid . '" name="question_required[' . $pq->id . ']" value="1" ' . $requiredchecked . '>';
                     $questionstable .= '</td>';
                     
                     // Turn visibility fields (only for turns-based aichat pages).

@@ -11,6 +11,7 @@ import {
 
 let initialized = false;
 let handlersRegistered = false;
+const qaEvaluationSaved = {};
 
 export const init = () => initialize();
 
@@ -52,6 +53,20 @@ function registerHandlers() {
         const pageid = parseInt(button.data('pageid'), 10);
         if (!cmid || !pageid) {
             addError('Missing cmid or pageid');
+            return;
+        }
+        if (hasUnsavedQaEvaluation(pageid)) {
+            getString('qarequiresave', 'mod_harpiasurvey').then((message) => {
+                Notification.addNotification({
+                    message: message,
+                    type: 'warning'
+                });
+            }).catch(() => {
+                Notification.addNotification({
+                    message: 'Please save the evaluation answers before starting a new question.',
+                    type: 'warning'
+                });
+            });
             return;
         }
         const input = $(`#chat-input-page-${pageid}`);
@@ -105,6 +120,20 @@ function registerHandlers() {
         if (!pageid) {
             return;
         }
+        if (hasUnsavedQaEvaluation(pageid)) {
+            getString('qarequiresave', 'mod_harpiasurvey').then((message) => {
+                Notification.addNotification({
+                    message: message,
+                    type: 'warning'
+                });
+            }).catch(() => {
+                Notification.addNotification({
+                    message: 'Please save the evaluation answers before starting a new question.',
+                    type: 'warning'
+                });
+            });
+            return;
+        }
         resetQaView(pageid);
     });
 
@@ -112,11 +141,72 @@ function registerHandlers() {
         e.preventDefault();
         const button = $(this);
         const pageid = parseInt(button.data('pageid'), 10);
-        const questionId = parseInt(button.data('question-id'), 10);
+        const questionId = button.data('question-id');
         if (!pageid || !questionId) {
             return;
         }
         selectQaQuestion(pageid, questionId);
+    });
+
+    $(document).on('click', '.qa-evaluation-questions-container .save-turn-evaluation-questions-btn', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const button = $(this);
+        const turnId = parseInt(button.data('turn-id'), 10);
+        const pageid = parseInt(button.data('pageid'), 10);
+        const cmid = parseInt(button.data('cmid'), 10);
+        if (!turnId || !pageid || !cmid) {
+            Notification.addNotification({
+                message: 'Missing required data to save responses.',
+                type: 'error'
+            });
+            return;
+        }
+        const evaluationContainer = button.closest('.turn-evaluation-questions');
+        if (evaluationContainer.length === 0) {
+            return;
+        }
+        const responses = {};
+        evaluationContainer.find('[data-questionid]').each(function() {
+            const questionId = $(this).data('questionid');
+            const questionType = $(this).data('questiontype');
+            let responseValue = null;
+            if (questionType === 'multiplechoice') {
+                const checked = evaluationContainer.find(`input[name="question_${questionId}_turn[]"]:checked`);
+                const values = [];
+                checked.each(function() {
+                    values.push($(this).val());
+                });
+                responseValue = values.length > 0 ? JSON.stringify(values) : null;
+            } else if (questionType === 'select' || questionType === 'singlechoice' || questionType === 'likert') {
+                const selectSelector = `select[name="question_${questionId}_turn"]`;
+                const inputSelector = `input[name="question_${questionId}_turn"]:checked`;
+                const selected = evaluationContainer.find(`${selectSelector}, ${inputSelector}`);
+                responseValue = selected.length > 0 ? selected.val() : null;
+            } else if (questionType === 'number' || questionType === 'shorttext') {
+                const input = evaluationContainer.find(`input[name="question_${questionId}_turn"]`);
+                responseValue = input.length > 0 ? input.val() : null;
+            } else if (questionType === 'longtext') {
+                const textarea = evaluationContainer.find(`textarea[name="question_${questionId}_turn"]`);
+                responseValue = textarea.length > 0 ? textarea.val() : null;
+            }
+            if (responseValue !== null && responseValue !== '') {
+                responses[questionId] = responseValue;
+            }
+        });
+
+        if (Object.keys(responses).length === 0) {
+            Notification.addNotification({
+                message: 'No responses to save.',
+                type: 'info'
+            });
+            return;
+        }
+
+        const originalText = button.text();
+        button.prop('disabled', true);
+        button.text('Saving...');
+        saveQaEvaluationResponses(cmid, pageid, turnId, responses, button, originalText);
     });
 
     handlersRegistered = true;
@@ -151,6 +241,10 @@ const resetQaView = (pageid) => {
         sendButton.prop('disabled', false);
         container.find('.qa-question-item').removeClass('active');
         input.focus();
+    }
+    const evalContainer = $(`#qa-evaluation-questions-container-${pageid}`);
+    if (evalContainer.length > 0) {
+        evalContainer.empty();
     }
 };
 
@@ -254,6 +348,9 @@ const selectQaQuestion = (pageid, questionId) => {
     if (messagesContainer.length === 0) {
         return;
     }
+    const container = $(`.ai-conversation-container[data-pageid="${pageid}"]`);
+    container.attr('data-qa-active-id', questionId);
+    container.data('qa-active-id', questionId);
     messagesContainer.find('.qa-placeholder').hide();
     messagesContainer.find('.message').hide();
     messagesContainer.find(`.message[data-messageid="${questionId}"], .message[data-parentid="${questionId}"]`).show();
@@ -261,6 +358,12 @@ const selectQaQuestion = (pageid, questionId) => {
     list.find('.qa-question-item').removeClass('active');
     list.find(`.qa-question-item[data-question-id="${questionId}"]`).addClass('active');
     lockQaInput(pageid);
+    const evalId = parseInt(questionId, 10);
+    if (!isNaN(evalId)) {
+        renderQaEvaluationQuestions(pageid, evalId).then(() => {
+            loadQaEvaluationResponses(pageid, evalId);
+        });
+    }
 };
 
 const addQaQuestionItem = (pageid, questionId, message) => {
@@ -279,6 +382,9 @@ const addQaQuestionItem = (pageid, questionId, message) => {
         text: label
     });
     list.append(button);
+    if (list[0]) {
+        list.scrollTop(list[0].scrollHeight);
+    }
 };
 
 const updateQaQuestionItemId = (pageid, newId) => {
@@ -299,4 +405,271 @@ const lockQaInput = (pageid) => {
     const sendButton = container.find('.chat-send-btn');
     input.prop('disabled', true);
     sendButton.prop('disabled', true);
+};
+
+const hasUnsavedQaEvaluation = (pageid) => {
+    const qaContainer = $(`.ai-conversation-container[data-pageid="${pageid}"]`);
+    const activeId = qaContainer.data('qa-active-id');
+    if (!activeId) {
+        return false;
+    }
+    if (!qaEvaluationSaved[pageid]) {
+        qaEvaluationSaved[pageid] = {};
+    }
+    if (qaEvaluationSaved[pageid][activeId] === true) {
+        return false;
+    }
+    const container = $(`#qa-evaluation-questions-container-${pageid}`);
+    if (container.length === 0) {
+        return false;
+    }
+    const questions = container.find('.question-item');
+    if (questions.length === 0) {
+        return false;
+    }
+    const requiredQuestions = container.find('.question-item[data-required="1"]');
+    const requiredSet = requiredQuestions.length > 0 ? requiredQuestions : questions;
+    let missing = false;
+    requiredSet.each(function() {
+        const item = $(this);
+        if (item.find('.saved-response-message').length === 0) {
+            missing = true;
+            return false;
+        }
+        return undefined;
+    });
+    qaEvaluationSaved[pageid][activeId] = !missing;
+    return missing;
+};
+
+const renderQaEvaluationQuestions = (pageid, questionId) => {
+    const containerWrapper = $(`#qa-evaluation-questions-container-${pageid}`);
+    if (containerWrapper.length === 0) {
+        return Promise.resolve();
+    }
+    if (!qaEvaluationSaved[pageid]) {
+        qaEvaluationSaved[pageid] = {};
+    }
+    qaEvaluationSaved[pageid][questionId] = false;
+    return getString('loading', 'moodle').then((loadingStr) => {
+        containerWrapper.html('<div class="text-center py-3 text-muted"><i class="fa fa-spinner fa-spin"></i> ' +
+            loadingStr + '</div>');
+
+        const params = new URLSearchParams({
+            action: 'get_turn_questions',
+            pageid: pageid,
+            turn_id: questionId,
+            cmid: $(`#chat-messages-page-${pageid}`).closest('.ai-conversation-container').data('cmid'),
+            sesskey: Config.sesskey
+        });
+
+        return fetch(Config.wwwroot + '/mod/harpiasurvey/ajax.php?' + params.toString(), {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('HTTP error! status: ' + response.status);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success && data.html) {
+                containerWrapper.html(data.html);
+            } else {
+                containerWrapper.html('<div class="text-center text-muted py-3">' +
+                    (data.message || 'No questions available for this entry.') + '</div>');
+            }
+        })
+        .catch((error) => {
+            // eslint-disable-next-line no-console
+            console.error('Error loading evaluation questions:', error);
+            containerWrapper.html('<div class="text-danger text-center py-3">' +
+                'Error loading questions: ' + error.message + '</div>');
+        });
+    });
+};
+
+const loadQaEvaluationResponses = (pageid, questionId) => {
+    const containerWrapper = $(`#qa-evaluation-questions-container-${pageid}`);
+    if (containerWrapper.length === 0) {
+        return;
+    }
+    let container = containerWrapper.find(`.turn-evaluation-questions[data-turn-id="${questionId}"]`);
+    if (container.length === 0) {
+        container = containerWrapper;
+    }
+
+    const params = new URLSearchParams({
+        action: 'get_turn_responses',
+        cmid: $(`#chat-messages-page-${pageid}`).closest('.ai-conversation-container').data('cmid'),
+        pageid: pageid,
+        turn_id: questionId,
+        sesskey: Config.sesskey
+    });
+
+    fetch(Config.wwwroot + '/mod/harpiasurvey/ajax.php?' + params.toString(), {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('HTTP error! status: ' + response.status);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data.success || !data.responses) {
+            return;
+        }
+        Object.keys(data.responses).forEach((questionId) => {
+            const responseData = data.responses[questionId];
+            const questionItem = container.find(`.question-item[data-questionid="${questionId}"]`);
+            if (questionItem.length === 0) {
+                return;
+            }
+            const questionType = questionItem.data('questiontype');
+            const value = responseData.response;
+
+            if (questionType === 'singlechoice' || questionType === 'likert') {
+                questionItem.find('input[type="radio"]').prop('checked', false);
+                questionItem.find(`input[type="radio"][value="${value}"]`).prop('checked', true);
+            } else if (questionType === 'multiplechoice') {
+                questionItem.find('input[type="checkbox"]').prop('checked', false);
+                try {
+                    const values = JSON.parse(value);
+                    if (Array.isArray(values)) {
+                        values.forEach((val) => {
+                            questionItem.find(`input[type="checkbox"][value="${val}"]`).prop('checked', true);
+                        });
+                    }
+                } catch (e) {
+                    // ignore invalid JSON
+                }
+            } else if (questionType === 'select') {
+                questionItem.find('select').val(value);
+            } else if (questionType === 'number') {
+                questionItem.find('input[type="number"]').val(value);
+            } else if (questionType === 'shorttext') {
+                questionItem.find('input[type="text"]').val(value);
+            } else if (questionType === 'longtext') {
+                questionItem.find('textarea').val(value);
+            }
+
+            if (responseData.saved_datetime) {
+                getString('saved', 'mod_harpiasurvey').then((savedText) => {
+                    getString('on', 'mod_harpiasurvey').then((onText) => {
+                        const icon = '<i class="fa fa-check-circle" aria-hidden="true"></i>';
+                        let savedMessage = questionItem.find('.saved-response-message');
+                        if (savedMessage.length === 0) {
+                            const messageHtml = '<div class="mt-2 small text-muted saved-response-message">' +
+                                `${icon} ${savedText} ${onText} ${responseData.saved_datetime}</div>`;
+                            questionItem.append(messageHtml);
+                        } else {
+                            savedMessage.html(`${icon} ${savedText} ${onText} ${responseData.saved_datetime}`);
+                        }
+                    });
+                });
+            }
+
+            getString('answerhistory', 'mod_harpiasurvey').then((historyText) => {
+                let history = questionItem.find('.answer-history');
+                if (!history.length && responseData.history_count > 1) {
+                    const details = $('<details class="answer-history mt-1"></details>');
+                    details.append(`<summary>${historyText} (${responseData.history_count})</summary>`);
+                    details.append('<ul class="list-unstyled mt-2 mb-0"></ul>');
+                    questionItem.append(details);
+                    history = details;
+                }
+                if (history.length) {
+                    const list = history.find('ul');
+                    list.empty();
+                    (responseData.history_items || []).forEach((item) => {
+                        list.append(`<li class="mb-1"><span class="text-muted">${item.time}</span> — ${item.response}</li>`);
+                    });
+                    history.find('summary').text(`${historyText} (${responseData.history_count || 0})`);
+                    if ((responseData.history_count || 0) > 1) {
+                        history.show();
+                    } else {
+                        history.hide();
+                    }
+                }
+            });
+        });
+        if (!qaEvaluationSaved[pageid]) {
+            qaEvaluationSaved[pageid] = {};
+        }
+        const requiredQuestions = container.find('.question-item[data-required="1"]');
+        const requiredSet = requiredQuestions.length > 0 ? requiredQuestions : container.find('.question-item');
+        const requiredCount = requiredSet.length;
+        const savedRequired = requiredSet.filter(function() {
+            return $(this).find('.saved-response-message').length > 0;
+        }).length;
+        qaEvaluationSaved[pageid][questionId] = (requiredCount > 0 && savedRequired === requiredCount);
+    })
+    .catch((error) => {
+        // eslint-disable-next-line no-console
+        console.error('Error loading evaluation responses:', error);
+    });
+};
+
+const saveQaEvaluationResponses = (cmid, pageid, questionId, responses, button, originalText) => {
+    const entries = Object.entries(responses);
+    let failedCount = 0;
+
+    let promiseChain = Promise.resolve();
+    entries.forEach(([qid, response]) => {
+        promiseChain = promiseChain.then(() => {
+            const params = new URLSearchParams({
+                action: 'save_response',
+                cmid: cmid,
+                pageid: pageid,
+                questionid: qid,
+                response: response,
+                turn_id: questionId,
+                sesskey: Config.sesskey
+            });
+
+            return fetch(Config.wwwroot + '/mod/harpiasurvey/ajax.php?' + params.toString(), {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (!data.success) {
+                    failedCount++;
+                }
+            })
+            .catch(() => {
+                failedCount++;
+            });
+        });
+    });
+
+    promiseChain.then(() => {
+        button.prop('disabled', false);
+        button.text(originalText);
+        if (failedCount === 0) {
+            Notification.addNotification({
+                message: 'Responses saved.',
+                type: 'success'
+            });
+        } else {
+            Notification.addNotification({
+                message: 'Some responses failed to save.',
+                type: 'warning'
+            });
+        }
+        if (!qaEvaluationSaved[pageid]) {
+            qaEvaluationSaved[pageid] = {};
+        }
+        qaEvaluationSaved[pageid][questionId] = false;
+        loadQaEvaluationResponses(pageid, questionId);
+    });
 };

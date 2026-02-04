@@ -110,23 +110,6 @@
             {{/aichat.is_turns_mode}}
             
             
-            {{! Q&A history list }}
-            {{#aichat.is_qa_mode}}
-                <div class="qa-questions-list mb-2" data-pageid="{{pageid}}">
-                    {{#aichat.has_qa_questions}}
-                        {{#aichat.qa_questions}}
-                            <button type="button"
-                                    class="btn btn-sm btn-outline-secondary qa-question-item{{#is_active}} active{{/is_active}}"
-                                    data-pageid="{{pageid}}"
-                                    data-question-id="{{id}}"
-                                    title="{{title}}">
-                                {{preview}}
-                            </button>
-                        {{/aichat.qa_questions}}
-                    {{/aichat.has_qa_questions}}
-                </div>
-            {{/aichat.is_qa_mode}}
-
             {{! Chat messages area }}
             <div class="chat-messages border rounded p-3 mb-2" id="chat-messages-page-{{pageid}}" style="max-height: 600px; overflow-y: auto; background-color: #f8f9fa;">
                 {{#aichat.has_history}}
@@ -150,6 +133,23 @@
                     </div>
                 {{/aichat.has_history}}
             </div>
+
+            {{! Q&A history list }}
+            {{#aichat.is_qa_mode}}
+                <div class="qa-questions-list mb-2" data-pageid="{{pageid}}" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 160px; overflow-y: auto;">
+                    {{#aichat.has_qa_questions}}
+                        {{#aichat.qa_questions}}
+                            <button type="button"
+                                    class="btn btn-sm btn-outline-secondary qa-question-item{{#is_active}} active{{/is_active}}"
+                                    data-pageid="{{pageid}}"
+                                    data-question-id="{{id}}"
+                                    title="{{title}}">
+                                {{preview}}
+                            </button>
+                        {{/aichat.qa_questions}}
+                    {{/aichat.has_qa_questions}}
+                </div>
+            {{/aichat.is_qa_mode}}
             
             
             {{! Input area }}
@@ -188,6 +188,12 @@
                     {{! Questions will be dynamically loaded here based on current turn }}
                 </div>
             {{/aichat.is_turns_mode}}
+            {{! Q&A evaluation questions container (per entry) }}
+            {{#aichat.is_qa_mode}}
+                <div class="qa-evaluation-questions-container mt-4" id="qa-evaluation-questions-container-{{pageid}}">
+                    {{! Questions will be dynamically loaded here based on selected Q&A entry }}
+                </div>
+            {{/aichat.is_qa_mode}}
             </div>
         </div>
     </div>
@@ -197,8 +203,8 @@
     {{#has_questions}}
         <div class="page-questions mt-4">
             {{#questions}}
-                <div class="question-item mb-4" data-questionid="{{id}}" data-questiontype="{{type}}">
-                    <h5>{{name}}</h5>
+                <div class="question-item mb-4" data-questionid="{{id}}" data-questiontype="{{type}}" data-required="{{required}}">
+                    <h5>{{name}}{{#is_required}} <span class="text-danger">*</span>{{/is_required}}</h5>
                     <div class="question-description mb-2">
                         {{{description}}}
                     </div>
@@ -262,11 +268,21 @@
                     {{/has_options}}
                     
                     {{! Saved response message for each question }}
-                    {{#has_saved_response}}
+                    {{#has_history}}
                         <div class="mt-2 small text-muted saved-response-message" data-questionid="{{id}}">
                             <i class="fa fa-check-circle" aria-hidden="true"></i> {{#str}}saved, mod_harpiasurvey{{/str}} {{#str}}on, mod_harpiasurvey{{/str}} {{saved_datetime}}
                         </div>
-                    {{/has_saved_response}}
+                    {{/has_history}}
+                    {{#has_history_details}}
+                        <details class="answer-history mt-1" data-questionid="{{id}}">
+                            <summary>{{#str}}answerhistory, mod_harpiasurvey{{/str}} ({{history_count}})</summary>
+                            <ul class="list-unstyled mt-2 mb-0">
+                                {{#history_items}}
+                                    <li class="mb-1"><span class="text-muted">{{time}}</span> — {{response}}</li>
+                                {{/history_items}}
+                            </ul>
+                        </details>
+                    {{/has_history_details}}
                 </div>
             {{/questions}}
             
@@ -284,58 +300,7 @@
         </div>
     {{/has_questions}}
     
-    {{! Pagination navigation }}
-    {{#has_pagination}}
-        <nav aria-label="Page navigation" class="mt-4" data-navigation-mode="{{navigation_mode}}" data-canmanage="{{can_navigate}}">
-            <ul class="pagination justify-content-center">
-                {{#pagination.has_prev}}
-                    <li class="page-item">
-                        <a class="page-link" href="{{pagination.prev_url}}" aria-label="Previous">
-                            <span aria-hidden="true">&laquo; {{#str}}previous, moodle{{/str}}</span>
-                        </a>
-                    </li>
-                {{/pagination.has_prev}}
-                {{^pagination.has_prev}}
-                    <li class="page-item disabled">
-                        <span class="page-link" aria-label="Previous">
-                            <span aria-hidden="true">&laquo; {{#str}}previous, moodle{{/str}}</span>
-                        </span>
-                    </li>
-                {{/pagination.has_prev}}
-                
-                {{#pagination.pages}}
-                    <li class="page-item{{#is_current}} active{{/is_current}}{{^is_current}}{{#is_only_forward}} disabled{{/is_only_forward}}{{/is_current}}">
-                        {{#is_current}}
-                            <a class="page-link" href="{{url}}">{{number}}</a>
-                        {{/is_current}}
-                        {{^is_current}}
-                            {{#is_only_forward}}
-                                <span class="page-link">{{number}}</span>
-                            {{/is_only_forward}}
-                            {{^is_only_forward}}
-                        <a class="page-link" href="{{url}}">{{number}}</a>
-                            {{/is_only_forward}}
-                        {{/is_current}}
-                    </li>
-                {{/pagination.pages}}
-                
-                {{#pagination.has_next}}
-                    <li class="page-item">
-                        <a class="page-link navigation-next-link" href="{{pagination.next_url}}" aria-label="Next" data-pageid="{{pageid}}">
-                            <span aria-hidden="true">{{#str}}next, moodle{{/str}} &raquo;</span>
-                        </a>
-                    </li>
-                {{/pagination.has_next}}
-                {{^pagination.has_next}}
-                    <li class="page-item disabled">
-                        <span class="page-link" aria-label="Next">
-                            <span aria-hidden="true">{{#str}}next, moodle{{/str}} &raquo;</span>
-                        </span>
-                    </li>
-                {{/pagination.has_next}}
-            </ul>
-        </nav>
-    {{/has_pagination}}
+    {{! Pagination navigation intentionally removed (use top tabs only) }}
     
     {{#has_subpages}}
         <div class="subpages-container mt-4" id="subpages-container-{{pageid}}">
@@ -357,10 +322,11 @@
                                 <div class="question-item mb-4" 
                                      data-questionid="{{id}}" 
                                      data-questiontype="{{type}}"
+                                     data-required="{{required}}"
                                      data-visibility-type="{{turn_visibility_type}}"
                                      {{#turn_number}}data-turn-number="{{turn_number}}"{{/turn_number}}
                                      style="display: none;">
-                                    <h5>{{name}}</h5>
+                                    <h5>{{name}}{{#is_required}} <span class="text-danger">*</span>{{/is_required}}</h5>
                                     <div class="question-description mb-2">
                                         {{{description}}}
                                     </div>
@@ -416,11 +382,21 @@
                                         {{/is_longtext}}
                                     {{/has_options}}
                                     
-                                    {{#has_saved_response}}
+                                    {{#has_history}}
                                         <div class="mt-2 small text-muted saved-response-message" data-questionid="{{id}}">
-                                            <i class="fa fa-check-circle" aria-hidden="true"></i> {{#str}}saved, mod_harpiasurvey{{/str}}
+                                            <i class="fa fa-check-circle" aria-hidden="true"></i> {{#str}}saved, mod_harpiasurvey{{/str}} {{#str}}on, mod_harpiasurvey{{/str}} {{saved_datetime}}
                                         </div>
-                                    {{/has_saved_response}}
+                                    {{/has_history}}
+                                    {{#has_history_details}}
+                                        <details class="answer-history mt-1" data-questionid="{{id}}">
+                                            <summary>{{#str}}answerhistory, mod_harpiasurvey{{/str}} ({{history_count}})</summary>
+                                            <ul class="list-unstyled mt-2 mb-0">
+                                                {{#history_items}}
+                                                    <li class="mb-1"><span class="text-muted">{{time}}</span> — {{response}}</li>
+                                                {{/history_items}}
+                                            </ul>
+                                        </details>
+                                    {{/has_history_details}}
                                 </div>
                             {{/questions}}
                         </div>

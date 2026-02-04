@@ -62,6 +62,7 @@ if ($questionid) {
         $pagequestion->sortorder = ($maxsort !== false) ? $maxsort + 1 : 0;
         $pagequestion->timecreated = time();
         $pagequestion->enabled = 1; // Default to enabled.
+        $pagequestion->required = 1; // Default to required to match existing behavior.
         
         // For aichat pages with turns mode, set min_turn = 1 by default.
         // All questions on aichat pages evaluate the page's chat conversation.
@@ -173,4 +174,3 @@ echo html_writer::link($backurl, get_string('back', 'mod_harpiasurvey'), ['class
 echo html_writer::end_tag('div');
 
 echo $OUTPUT->footer();
-

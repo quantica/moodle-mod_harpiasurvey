@@ -24,6 +24,7 @@ global $DB;
 // Delete in order to respect foreign key constraints.
 $tables = [
     'harpiasurvey_conversations',
+    'harpiasurvey_response_history',
     'harpiasurvey_responses',
     'harpiasurvey_question_options',
     'harpiasurvey_questions',
@@ -46,4 +47,3 @@ foreach ($tables as $table) {
 }
 
 echo "\nDone!\n";
-

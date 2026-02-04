@@ -50,6 +50,60 @@
         <tbody>
             {{#has_responses}}
                 {{#responses}}
+                    {{#is_group_header}}
+                        <tr class="table-active">
+                            <td><strong>{{user}}</strong></td>
+                            <td><strong>{{question}}</strong></td>
+                            <td>
+                                {{#conversationtypelabel}}
+                                    <span class="badge badge-primary">{{conversationtypelabel}}</span>
+                                {{/conversationtypelabel}}
+                                {{^conversationtypelabel}}
+                                    <span class="text-muted">—</span>
+                                {{/conversationtypelabel}}
+                            </td>
+                            <td>
+                                {{#conversationtypelabel}}
+                                    <span class="badge badge-primary">{{conversationtypelabel}}</span>
+                                {{/conversationtypelabel}}
+                                {{^conversationtypelabel}}
+                                    <span class="text-muted">—</span>
+                                {{/conversationtypelabel}}
+                            </td>
+                            <td>
+                                {{#modelnamesstr}}
+                                    <span class="badge badge-secondary">{{modelnamesstr}}</span>
+                                {{/modelnamesstr}}
+                                {{^modelnamesstr}}
+                                    <span class="text-muted">—</span>
+                                {{/modelnamesstr}}
+                            </td>
+                            <td>
+                                <span class="text-muted">—</span>
+                            </td>
+                            <td>
+                                {{#turn_id}}
+                                    <span class="badge badge-secondary">{{turn_id}}</span>
+                                {{/turn_id}}
+                                {{^turn_id}}
+                                    <span class="text-muted">—</span>
+                                {{/turn_id}}
+                            </td>
+                            <td>
+                                <span class="badge badge-info mr-2">{{messagecount}} {{#str}}messages, mod_harpiasurvey{{/str}}</span>
+                                <span class="text-muted">{{preview}}</span>
+                                <button type="button"
+                                        class="btn btn-sm btn-link p-0 ml-2 view-eval-messages-btn"
+                                        data-messages='{{{messagesjson}}}'>
+                                    {{#str}}viewmessages, mod_harpiasurvey{{/str}}
+                                </button>
+                            </td>
+                            <td>{{timecreated}}</td>
+                            <td>{{timelast}}</td>
+                            <td><span class="text-muted">—</span></td>
+                        </tr>
+                    {{/is_group_header}}
+                    {{^is_group_header}}
                     <tr {{#was_edited}}{{^is_latest}}class="table-secondary"{{/is_latest}}{{/was_edited}}>
                         <td>{{user}}</td>
                         <td>{{question}}</td>
@@ -190,6 +244,7 @@
                             {{/was_edited}}
                         </td>
                     </tr>
+                    {{/is_group_header}}
                 {{/responses}}
             {{/has_responses}}
             {{^has_responses}}
@@ -201,3 +256,18 @@
     </table>
 </div>
 
+<div class="modal fade" id="harpiasurvey-messages-modal" tabindex="-1" role="dialog" aria-labelledby="harpiasurvey-messages-modal-title" aria-hidden="true">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="harpiasurvey-messages-modal-title">{{#str}}messages, mod_harpiasurvey{{/str}}</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="{{#str}}close, moodle{{/str}}">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body" id="harpiasurvey-messages-modal-body">
+                <div class="text-muted text-center py-3">{{#str}}nomessagesyet, mod_harpiasurvey{{/str}}</div>
+            </div>
+        </div>
+    </div>
+</div>

@@ -134,8 +134,8 @@
                     {{#has_questions}}
                         <div class="page-questions mt-4">
                             {{#questions}}
-                                <div class="question-item mb-4" data-questionid="{{id}}" data-questiontype="{{type}}">
-                                    <h5>{{name}}</h5>
+                                <div class="question-item mb-4" data-questionid="{{id}}" data-questiontype="{{type}}" data-required="{{required}}">
+                                    <h5>{{name}}{{#is_required}} <span class="text-danger">*</span>{{/is_required}}</h5>
                                     <div class="question-description mb-2">
                                         {{{description}}}
                                     </div>
@@ -199,11 +199,21 @@
                                     {{/has_options}}
                                     
                                     {{! Saved response message for each question }}
-                                    {{#has_saved_response}}
+                                    {{#has_history}}
                                         <div class="mt-2 small text-muted saved-response-message" data-questionid="{{id}}">
                                             <i class="fa fa-check-circle" aria-hidden="true"></i> {{#str}}saved, mod_harpiasurvey{{/str}} {{#str}}on, mod_harpiasurvey{{/str}} {{saved_datetime}}
                                         </div>
-                                    {{/has_saved_response}}
+                                    {{/has_history}}
+                                    {{#has_history_details}}
+                                        <details class="answer-history mt-1" data-questionid="{{id}}">
+                                            <summary>{{#str}}answerhistory, mod_harpiasurvey{{/str}} ({{history_count}})</summary>
+                                            <ul class="list-unstyled mt-2 mb-0">
+                                                {{#history_items}}
+                                                    <li class="mb-1"><span class="text-muted">{{time}}</span> — {{response}}</li>
+                                                {{/history_items}}
+                                            </ul>
+                                        </details>
+                                    {{/has_history_details}}
                                 </div>
                             {{/questions}}
                             
@@ -233,4 +243,3 @@
         </div>
     </div>
 </div>
-

@@ -19,13 +19,11 @@ import {
     calculateTurnNumber,
     renderConversationList
 } from './common_chat';
-import {ensureFancytree} from './fancytree_loader';
 
 let initializedTurns = false;
 let commonHandlersRegistered = false;
 let turnHandlersRegistered = false;
 let treeHandlersRegistered = false;
-const fancytreeInstances = {};
 
 /**
  * Initialize turns-mode chat for all containers on the page.
@@ -319,6 +317,8 @@ function registerTreeHandlers() {
         // Render the list view.
         const sidebar = $(`#conversation-tree-sidebar-${pageid}`);
         sidebar.data('sidebar-view', 'list'); // Set to list view
+        sidebar.data('branch-root', null);
+        sidebar.data('branch-stack', []);
 
         const tree = conversationTrees[pageid];
         if (tree) {
@@ -326,6 +326,62 @@ function registerTreeHandlers() {
         } else {
             loadConversationTree(pageid);
         }
+    });
+
+    // Handle back to parent branch button click.
+    $(document).on('click', '.back-to-parent-branch-btn', function(e) {
+        e.preventDefault();
+        const button = $(this);
+        const pageid = parseInt(button.data('pageid'), 10);
+        if (!pageid) {
+            return;
+        }
+        const sidebar = $(`#conversation-tree-sidebar-${pageid}`);
+        let stack = sidebar.data('branch-stack');
+        if (!Array.isArray(stack) || stack.length === 0) {
+            sidebar.data('branch-root', null);
+            sidebar.data('branch-stack', []);
+            loadConversationTree(pageid);
+            return;
+        }
+        const previousRoot = stack.pop();
+        sidebar.data('branch-stack', stack);
+        sidebar.data('branch-root', previousRoot || null);
+        sidebar.data('sidebar-view', 'detail');
+        loadConversationTree(pageid);
+    });
+
+    // Handle enter branch (subtree) button click.
+    $(document).on('click', '.enter-branch-btn', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const button = $(this);
+        const pageid = parseInt(button.data('pageid'), 10);
+        const turnId = parseInt(button.data('turn-id'), 10);
+        if (!pageid || !turnId) {
+            return;
+        }
+        const tree = conversationTrees[pageid];
+        if (!tree || !tree.roots) {
+            return;
+        }
+        const targetNode = findNodeByTurnId(tree.roots, turnId);
+        if (!targetNode || !targetNode.children || targetNode.children.length === 0) {
+            return;
+        }
+        const sidebar = $(`#conversation-tree-sidebar-${pageid}`);
+        let stack = sidebar.data('branch-stack');
+        if (!Array.isArray(stack)) {
+            stack = [];
+        }
+        const currentRoot = sidebar.data('branch-root');
+        if (currentRoot) {
+            stack.push(currentRoot);
+        }
+        sidebar.data('branch-stack', stack);
+        sidebar.data('branch-root', turnId);
+        sidebar.data('sidebar-view', 'detail');
+        navigateToTurn(pageid, turnId);
     });
 
     // Handle create branch button clicks (from tree).
@@ -336,8 +392,46 @@ function registerTreeHandlers() {
         const pageid = parseInt(button.data('pageid'), 10);
         const cmid = parseInt(button.data('cmid'), 10);
         const turnId = parseInt(button.data('turn-id'), 10);
+        const branchMode = button.data('branch-mode');
 
-        if (!pageid || !cmid || !turnId) {
+        if (!pageid || !turnId) {
+            Notification.addNotification({
+                message: 'Missing required data to create turn',
+                type: 'error'
+            });
+            return;
+        }
+        if (hasUnsavedTurnEvaluation(pageid, turnId)) {
+            getString('turnrequiresave', 'mod_harpiasurvey').then((message) => {
+                Notification.addNotification({
+                    message: message,
+                    type: 'warning'
+                });
+            }).catch(() => {
+                Notification.addNotification({
+                    message: 'Please save the evaluation answers before creating a new turn.',
+                    type: 'warning'
+                });
+            });
+            return;
+        }
+        if (branchMode === 'enter') {
+            const sidebar = $(`#conversation-tree-sidebar-${pageid}`);
+            let stack = sidebar.data('branch-stack');
+            if (!Array.isArray(stack)) {
+                stack = [];
+            }
+            const currentRoot = sidebar.data('branch-root');
+            if (currentRoot) {
+                stack.push(currentRoot);
+            }
+            sidebar.data('branch-stack', stack);
+            sidebar.data('branch-root', turnId);
+            sidebar.data('sidebar-view', 'detail');
+            navigateToTurn(pageid, turnId);
+            return;
+        }
+        if (!cmid) {
             Notification.addNotification({
                 message: 'Missing required data to create turn',
                 type: 'error'
@@ -374,6 +468,20 @@ function registerTreeHandlers() {
             Notification.addNotification({
                 message: 'Missing required data to create branch',
                 type: 'error'
+            });
+            return;
+        }
+        if (hasUnsavedTurnEvaluation(pageid, parentTurnId)) {
+            getString('turnrequiresave', 'mod_harpiasurvey').then((message) => {
+                Notification.addNotification({
+                    message: message,
+                    type: 'warning'
+                });
+            }).catch(() => {
+                Notification.addNotification({
+                    message: 'Please save the evaluation answers before creating a new turn.',
+                    type: 'warning'
+                });
             });
             return;
         }
@@ -435,44 +543,6 @@ function registerTreeHandlers() {
         
         // Open export URL in new window/tab to trigger download
         window.open(Config.wwwroot + '/mod/harpiasurvey/ajax.php?' + params.toString(), '_blank');
-    });
-
-    // Handle toggle children in tree (collapse/expand branches).
-    $(document).on('click', '.toggle-children', function(e) {
-        e.stopPropagation();
-        const icon = $(this);
-        const childrenContainer = icon.closest('.tree-node').find('.tree-children');
-        if (childrenContainer.is(':visible')) {
-            childrenContainer.hide();
-            icon.removeClass('fa-chevron-down').addClass('fa-chevron-right');
-        } else {
-            childrenContainer.show();
-            icon.removeClass('fa-chevron-right').addClass('fa-chevron-down');
-        }
-    });
-
-    // Collapse/expand controls for Fancytree.
-    $(document).on('click', '.tree-toolbar-collapse-all', function(e) {
-        e.preventDefault();
-        const pageid = parseInt($(this).data('pageid'), 10);
-        const tree = fancytreeInstances[pageid];
-        if (tree) {
-            tree.visit(node => node.setExpanded(false));
-        }
-    });
-
-    $(document).on('click', '.tree-toolbar-expand-current', function(e) {
-        e.preventDefault();
-        const pageid = parseInt($(this).data('pageid'), 10);
-        const tree = fancytreeInstances[pageid];
-        if (tree) {
-            const viewingTurn = getViewingTurn(pageid);
-            const node = tree.getNodeByKey(String(viewingTurn));
-            if (node) {
-                node.makeVisible();
-                node.setActive(true);
-            }
-        }
     });
 
     treeHandlersRegistered = true;
@@ -1075,7 +1145,123 @@ const ensureTurnEvaluationQuestionsRendered = (pageid, turnId) => {
  * @param {number} turnId Turn ID
  */
 const loadTurnEvaluationResponses = (pageid, turnId) => {
-    // Placeholder: original logic omitted for brevity, would load responses via AJAX.
+    const cmid = getCmid(pageid);
+    if (!cmid) {
+        return;
+    }
+
+    const containerWrapper = $(`#turn-evaluation-questions-container-${pageid}`);
+    if (containerWrapper.length === 0) {
+        return;
+    }
+    let container = containerWrapper.find(`.turn-evaluation-questions[data-turn-id="${turnId}"]`);
+    if (container.length === 0) {
+        container = containerWrapper;
+    }
+
+    const params = new URLSearchParams({
+        action: 'get_turn_responses',
+        cmid: cmid,
+        pageid: pageid,
+        turn_id: turnId,
+        sesskey: Config.sesskey
+    });
+
+    fetch(Config.wwwroot + '/mod/harpiasurvey/ajax.php?' + params.toString(), {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('HTTP error! status: ' + response.status);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data.success || !data.responses) {
+            return;
+        }
+        Object.keys(data.responses).forEach((questionId) => {
+            const responseData = data.responses[questionId];
+            const questionItem = container.find(`.question-item[data-questionid="${questionId}"]`);
+            if (questionItem.length === 0) {
+                return;
+            }
+            const questionType = questionItem.data('questiontype');
+            const value = responseData.response;
+
+            if (questionType === 'singlechoice' || questionType === 'likert') {
+                questionItem.find('input[type="radio"]').prop('checked', false);
+                questionItem.find(`input[type="radio"][value="${value}"]`).prop('checked', true);
+            } else if (questionType === 'multiplechoice') {
+                questionItem.find('input[type="checkbox"]').prop('checked', false);
+                try {
+                    const values = JSON.parse(value);
+                    if (Array.isArray(values)) {
+                        values.forEach((val) => {
+                            questionItem.find(`input[type="checkbox"][value="${val}"]`).prop('checked', true);
+                        });
+                    }
+                } catch (e) {
+                    // ignore invalid JSON
+                }
+            } else if (questionType === 'select') {
+                questionItem.find('select').val(value);
+            } else if (questionType === 'number') {
+                questionItem.find('input[type="number"]').val(value);
+            } else if (questionType === 'shorttext') {
+                questionItem.find('input[type="text"]').val(value);
+            } else if (questionType === 'longtext') {
+                questionItem.find('textarea').val(value);
+            }
+
+            if (responseData.saved_datetime) {
+                getString('saved', 'mod_harpiasurvey').then((savedText) => {
+                    getString('on', 'mod_harpiasurvey').then((onText) => {
+                        const icon = '<i class="fa fa-check-circle" aria-hidden="true"></i>';
+                        let savedMessage = questionItem.find('.saved-response-message');
+                        if (savedMessage.length === 0) {
+                            const messageHtml = '<div class="mt-2 small text-muted saved-response-message">' +
+                                `${icon} ${savedText} ${onText} ${responseData.saved_datetime}</div>`;
+                            questionItem.append(messageHtml);
+                        } else {
+                            savedMessage.html(`${icon} ${savedText} ${onText} ${responseData.saved_datetime}`);
+                        }
+                    });
+                });
+            }
+
+            getString('answerhistory', 'mod_harpiasurvey').then((historyText) => {
+                let history = questionItem.find('.answer-history');
+                if (!history.length && responseData.history_count > 1) {
+                    const details = $('<details class="answer-history mt-1"></details>');
+                    details.append(`<summary>${historyText} (${responseData.history_count})</summary>`);
+                    details.append('<ul class="list-unstyled mt-2 mb-0"></ul>');
+                    questionItem.append(details);
+                    history = details;
+                }
+                if (history.length) {
+                    const list = history.find('ul');
+                    list.empty();
+                    (responseData.history_items || []).forEach((item) => {
+                        list.append(`<li class="mb-1"><span class="text-muted">${item.time}</span> — ${item.response}</li>`);
+                    });
+                    history.find('summary').text(`${historyText} (${responseData.history_count || 0})`);
+                    if ((responseData.history_count || 0) > 1) {
+                        history.show();
+                    } else {
+                        history.hide();
+                    }
+                }
+            });
+        });
+    })
+    .catch((error) => {
+        // eslint-disable-next-line no-console
+        console.error('Error loading turn responses:', error);
+    });
 };
 
 /**
@@ -1086,6 +1272,25 @@ const loadTurnEvaluationResponses = (pageid, turnId) => {
  */
 const clearTurnEvaluationForm = (pageid, turnId) => {
     // Placeholder for clearing any form state if needed.
+};
+
+const hasUnsavedTurnEvaluation = (pageid, turnId) => {
+    const containerWrapper = $(`#turn-evaluation-questions-container-${pageid}`);
+    if (containerWrapper.length === 0) {
+        return false;
+    }
+    const container = containerWrapper.find(`.turn-evaluation-questions[data-turn-id="${turnId}"]`);
+    if (container.length === 0) {
+        return false;
+    }
+    const requiredQuestions = container.find('.question-item[data-required="1"]');
+    if (requiredQuestions.length === 0) {
+        return false;
+    }
+    const savedRequired = requiredQuestions.filter(function() {
+        return $(this).find('.saved-response-message').length > 0;
+    }).length;
+    return savedRequired !== requiredQuestions.length;
 };
 
 /**
@@ -1278,17 +1483,19 @@ const loadConversationTree = (pageid) => {
             conversationTrees[pageid] = data.tree;
 
             const viewingTurn = getViewingTurn(pageid);
-            const cmid = getCmid(pageid);
-
-            // Render using Fancytree for better UX with deep trees.
-            ensureFancytree().then(() => {
-                renderFancyTree(pageid, data.tree.roots, viewingTurn, cmid);
-            }).catch((error) => {
-                // eslint-disable-next-line no-console
-                console.error('Error loading Fancytree:', error);
-                // Fallback to list rendering if Fancytree fails.
+            const viewMode = sidebar.data('sidebar-view');
+            const branchRootId = sidebar.data('branch-root');
+            if (!viewMode || viewMode === 'list') {
                 renderConversationList(pageid, data.tree.roots);
-            });
+            } else {
+                const root = branchRootId ? findNodeByTurnId(data.tree.roots || [], branchRootId) :
+                    findRootForTurn(data.tree.roots || [], viewingTurn);
+                if (root) {
+                    renderConversationDetail(pageid, root);
+                } else {
+                    renderConversationList(pageid, data.tree.roots);
+                }
+            }
 
             // Re-filter messages now that we have the tree, so previous-turn messages are correctly
             // marked and hidden by default, with the toggle controlling them.
@@ -1321,161 +1528,6 @@ const loadConversationTree = (pageid) => {
             'Please check the browser console for details and refresh the page.</div>');
         return null;
     });
-};
-
-/**
- * Convert conversation tree nodes to Fancytree nodes.
- *
- * @param {Object} node Tree node from server
- * @param {number} turnIndex Position among siblings
- * @param {string|null} parentNumber Hierarchical number of parent
- * @param {number} viewingTurn Currently viewed turn
- * @param {number} cmid Course module id
- * @return {Object} Fancytree node
- */
-const toFancyNode = (node, turnIndex, parentNumber, viewingTurn, cmid) => {
-    const turnNumber = calculateTurnNumber(node, turnIndex, parentNumber);
-    const title = 'Turn ' + turnNumber + (node.branch_label ? ' (' + node.branch_label + ')' : '');
-    const children = [];
-    let childCounter = 0;
-
-    if (node.direct_branches && node.direct_branches.length > 0) {
-        const sortedDirect = [...node.direct_branches].sort((a, b) =>
-            parseInt(a.turn_id, 10) - parseInt(b.turn_id, 10)
-        );
-        sortedDirect.forEach((db) => {
-            children.push(toFancyNode(db, childCounter, turnNumber, viewingTurn, cmid));
-            childCounter++;
-        });
-    }
-
-    if (node.children && node.children.length > 0) {
-        const sortedChildren = [...node.children].sort((a, b) =>
-            parseInt(a.turn_id, 10) - parseInt(b.turn_id, 10)
-        );
-        sortedChildren.forEach((child, idx) => {
-            children.push(toFancyNode(child, idx, turnNumber, viewingTurn, cmid));
-        });
-    }
-
-    const hasChildren = children.length > 0;
-    const extraClasses = [];
-    if (node.is_root) {
-        extraClasses.push('ft-root');
-    } else if (node.is_direct_branch) {
-        extraClasses.push('ft-direct-branch');
-    } else {
-        extraClasses.push('ft-branch');
-    }
-    if (hasChildren) {
-        extraClasses.push('ft-has-children');
-    }
-
-    return {
-        title: title,
-        key: String(node.turn_id),
-        expanded: node.is_root || parseInt(node.turn_id, 10) === parseInt(viewingTurn, 10),
-        active: parseInt(node.turn_id, 10) === parseInt(viewingTurn, 10),
-        extraClasses: extraClasses.join(' '),
-        children: children,
-        data: {
-            turn_id: node.turn_id,
-            is_root: node.is_root || false,
-            is_direct_branch: node.is_direct_branch || false,
-            cmid: cmid,
-            turn_number: turnNumber
-        }
-    };
-};
-
-/**
- * Render sidebar tree using Fancytree.
- *
- * @param {number} pageid Page id
- * @param {Array} roots Roots from server
- * @param {number} viewingTurn Currently viewed turn
- * @param {number} cmid Course module id
- */
-const renderFancyTree = (pageid, roots, viewingTurn, cmid) => {
-    const treeContainer = $(`#conversation-tree-${pageid}`);
-    if (treeContainer.length === 0) {
-        return;
-    }
-
-    // Build data for Fancytree: show only the current conversation tree.
-    const rootForViewing = findRootForTurn(roots || [], viewingTurn);
-    const rootsToRender = rootForViewing ? [rootForViewing] : ((roots && roots.length > 0) ? [roots[0]] : []);
-    const source = rootsToRender.map((root, idx) => toFancyNode(root, idx, null, viewingTurn, cmid));
-    const activeRootTurnId = rootsToRender.length ? rootsToRender[0].turn_id : null;
-
-    // Reset container with a top bar and toolbar.
-    treeContainer.html(
-        '<div class="tree-header d-flex align-items-center justify-content-between mb-2">' +
-            '<div class="d-flex align-items-center">' +
-                '<button class="btn btn-link btn-sm p-0 mr-2 back-to-list-btn" data-pageid="' + pageid + '" title="Back to list">' +
-                    '<i class="fa fa-arrow-left"></i>' +
-                '</button>' +
-                '<span class="font-weight-bold text-primary">Conversations</span>' +
-            '</div>' +
-            '<div class="btn-group btn-group-sm tree-toolbar" role="group">' +
-                '<button class="btn btn-outline-secondary tree-toolbar-collapse-all" data-pageid="' + pageid + '" title="Collapse all">' +
-                    '<i class="fa fa-minus-square-o" aria-hidden="true"></i>' +
-                '</button>' +
-                '<button class="btn btn-outline-secondary tree-toolbar-expand-current" data-pageid="' + pageid + '" title="Focus current turn">' +
-                    '<i class="fa fa-bullseye" aria-hidden="true"></i>' +
-                '</button>' +
-            '</div>' +
-        '</div>' +
-        (activeRootTurnId ? (
-            '<div class="mb-2">' +
-                '<button class="btn btn-sm btn-success btn-block create-direct-branch-btn" ' +
-                    'data-pageid="' + pageid + '" data-cmid="' + cmid + '" data-root-turn-id="' + activeRootTurnId + '">' +
-                    '<i class="fa fa-plus-circle" aria-hidden="true"></i> New turn from root' +
-                '</button>' +
-            '</div>'
-        ) : '') +
-        '<div class="fancytree-host fancytree-skin-win8" id="fancytree-host-' + pageid + '"></div>'
-    );
-    const host = $(`#fancytree-host-${pageid}`);
-
-    host.fancytree({
-        source: source,
-        checkbox: false,
-        selectMode: 1,
-        toggleEffect: false,
-        clickFolderMode: 3,
-        activate: (event, data) => {
-            const turnId = parseInt(data.node.key, 10);
-            if (turnId) {
-                navigateToTurn(pageid, turnId);
-            }
-        },
-        renderNode: (event, data) => {
-            const node = data.node;
-            const turnId = parseInt(node.key, 10);
-
-            // Add a compact branch button inline.
-            $(node.span).find('.ft-branch-btn').remove(); // prevent duplicates on re-render
-            const $btn = $('<button type="button" class="btn btn-xs btn-outline-success ml-1 ft-branch-btn" title="Branch"></button>');
-            $btn.append('<i class="fa fa-code-branch"></i>');
-            $btn.on('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (!cmid || !turnId) {
-                    Notification.addNotification({
-                        message: 'Missing data to create branch',
-                        type: 'error'
-                    });
-                    return;
-                }
-                createBranchFromTurn(cmid, pageid, turnId, $btn);
-            });
-
-            $(node.span).find('.fancytree-title').after($btn);
-        }
-    });
-
-    fancytreeInstances[pageid] = host.fancytree('getTree');
 };
 
 /**
@@ -1550,10 +1602,11 @@ const getTurnNumberForId = (pageid, turnId) => {
 /**
  * Prepare node data for recursive rendering.
  */
-const prepareNodeData = (node, level, currentTurnId, pageid, cmid, turnIndex = 0, parentNumber = null) => {
+const prepareNodeData = (node, level, currentTurnId, pageid, cmid, turnIndex = 0, parentNumber = null, includeChildren = true) => {
     const isCurrent = parseInt(node.turn_id, 10) === parseInt(currentTurnId, 10);
     const hasChildren = node.children && node.children.length > 0;
     const isDirectBranch = node.is_direct_branch || false;
+    const isRoot = node.is_root || false;
     const turnNumber = calculateTurnNumber(node, turnIndex, parentNumber);
 
     return {
@@ -1570,9 +1623,9 @@ const prepareNodeData = (node, level, currentTurnId, pageid, cmid, turnIndex = 0
         pageid: pageid,
         cmid: cmid,
         can_create_branch: true, // Turns-only module
-        children: hasChildren ? node.children.map((child, index) =>
+        children: (includeChildren && hasChildren) ? node.children.map((child, index) =>
             // Keep descendants at the same visual level as their branch root; only the bifurcation is indented.
-            prepareNodeData(child, isDirectBranch ? level : level + 1, currentTurnId, pageid, cmid, index, turnNumber)) : []
+            prepareNodeData(child, isDirectBranch ? level : level + 1, currentTurnId, pageid, cmid, index, turnNumber, includeChildren)) : []
     };
 };
 
@@ -1583,27 +1636,33 @@ const renderConversationDetail = (pageid, root) => {
     const treeContainer = $(`#conversation-tree-${pageid}`);
     const container = $(`#chat-messages-page-${pageid}`).closest('.ai-conversation-container');
     const cmid = container.data('cmid');
+    const sidebar = $(`#conversation-tree-sidebar-${pageid}`);
 
     const viewingTurn = getViewingTurn(pageid);
+    const branchStack = sidebar.data('branch-stack');
+    const showBranchBack = Array.isArray(branchStack) && branchStack.length > 0;
+    const isBranchRoot = !root.is_root;
+
+    sidebar.data('branch-root', root.turn_id);
 
     // Calculate turn numbers: root is 1, then direct branches are 2, 3, 4...
     // All turns at root level (root + direct branches) are numbered sequentially.
     let turnCounter = 0; // Will be incremented to 1 for root, 2 for first direct branch, etc.
-    const rootNodeData = prepareNodeData(root, 0, viewingTurn, pageid, cmid, turnCounter, null);
+    const rootNodeData = prepareNodeData(root, 0, viewingTurn, pageid, cmid, turnCounter, null, false);
     turnCounter++;
 
     // Find direct branches of this root (branches where parent is this root).
     // Direct branches are stored in the root's direct_branches array.
     const directBranches = [];
-    if (root.direct_branches && root.direct_branches.length > 0) {
-        // Sort direct branches by turn_id to ensure consistent ordering.
-        const sortedDirectBranches = [...root.direct_branches].sort((a, b) =>
+    const childBranches = root.is_root ? (root.direct_branches || []) : (root.children || []);
+    if (childBranches.length > 0) {
+        const sortedDirectBranches = [...childBranches].sort((a, b) =>
             parseInt(a.turn_id, 10) - parseInt(b.turn_id, 10)
         );
         sortedDirectBranches.forEach((node) => {
             // Direct branches continue sequential numbering: 2, 3, 4...
             // Level 1 so they render visually indented under the root they forked from.
-            directBranches.push(prepareNodeData(node, 1, viewingTurn, pageid, cmid, turnCounter, null));
+            directBranches.push(prepareNodeData(node, 0, viewingTurn, pageid, cmid, turnCounter, null, false));
             turnCounter++;
         });
     }
@@ -1614,13 +1673,44 @@ const renderConversationDetail = (pageid, root) => {
         direct_branches: directBranches,
         pageid: pageid,
         cmid: cmid,
-        conversation_number: root.conversation_number || 1
+        conversation_number: root.conversation_number || 1,
+        show_branch_back: showBranchBack,
+        branch_root_turn: isBranchRoot ? root.turn_id : null
     }).then((html) => {
         treeContainer.html(html);
+        treeContainer.find('[data-toggle="popover"]').popover({
+            trigger: 'hover',
+            placement: 'top',
+            container: 'body'
+        });
     }).catch((error) => {
         // eslint-disable-next-line no-console
         console.error('Error rendering conversation detail:', error);
     });
+};
+
+const findNodeByTurnId = (roots, turnId) => {
+    if (!roots || !turnId) {
+        return null;
+    }
+    const target = parseInt(turnId, 10);
+    const queue = [...roots];
+    while (queue.length) {
+        const node = queue.shift();
+        if (!node) {
+            continue;
+        }
+        if (parseInt(node.turn_id, 10) === target) {
+            return node;
+        }
+        if (node.direct_branches && node.direct_branches.length) {
+            queue.push(...node.direct_branches);
+        }
+        if (node.children && node.children.length) {
+            queue.push(...node.children);
+        }
+    }
+    return null;
 };
 
 /**
@@ -1694,6 +1784,21 @@ const createBranchFromTurn = (cmid, pageid, parentTurnId, buttonEl = null) => {
         }
 
         if (data.success) {
+            const sidebar = $(`#conversation-tree-sidebar-${pageid}`);
+            if (sidebar.length) {
+                let stack = sidebar.data('branch-stack');
+                if (!Array.isArray(stack)) {
+                    stack = [];
+                }
+                const currentRoot = sidebar.data('branch-root');
+                if (currentRoot) {
+                    stack.push(currentRoot);
+                }
+                sidebar.data('branch-stack', stack);
+                sidebar.data('branch-root', parentTurnId);
+                sidebar.data('sidebar-view', 'detail');
+            }
+
             // Navigate to the new turn and set it as current (this will unlock the chat).
             navigateToTurn(pageid, data.new_turn_id, true);
 
@@ -1701,8 +1806,6 @@ const createBranchFromTurn = (cmid, pageid, parentTurnId, buttonEl = null) => {
             addLocalBranchNode(pageid, parentTurnId, data.new_turn_id);
 
             // Reload conversation tree to show the new branch.
-            const sidebar = $(`#conversation-tree-sidebar-${pageid}`);
-            sidebar.data('sidebar-view', 'detail'); // Ensure we're in detail view.
             loadConversationTree(pageid);
 
             getString('branchcreated', 'mod_harpiasurvey')

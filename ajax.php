@@ -37,7 +37,7 @@ require_login($course, true, $cm);
 // Different capabilities for different actions.
 if (in_array($action, ['add_question_to_page', 'get_available_questions', 'add_question_to_subpage', 'get_available_subpage_questions'])) {
     require_capability('mod/harpiasurvey:manageexperiments', $cm->context);
-} else if (in_array($action, ['save_response', 'send_ai_message', 'get_conversation_history', 'get_turn_responses', 
+} else if (in_array($action, ['save_response', 'send_ai_message', 'get_conversation_history', 'get_turn_responses', 'get_turn_questions',
                               'get_conversation_tree', 'create_branch', 'create_root', 'export_conversation'])) {
     // Students can save their own responses and interact with AI.
     require_capability('mod/harpiasurvey:view', $cm->context);
@@ -315,6 +315,19 @@ switch ($action) {
                 $existing->turn_id = $turn_id;
             }
             $DB->update_record('harpiasurvey_responses', $existing);
+
+            // Log history entry.
+            if ($DB->get_manager()->table_exists('harpiasurvey_response_history')) {
+                $history = new stdClass();
+                $history->responseid = $existing->id;
+                $history->pageid = $pageid;
+                $history->questionid = $questionid;
+                $history->userid = $USER->id;
+                $history->response = $response;
+                $history->turn_id = $turn_id;
+                $history->timecreated = time();
+                $DB->insert_record('harpiasurvey_response_history', $history);
+            }
         } else {
             // Create new response.
             $newresponse = new stdClass();
@@ -331,6 +344,19 @@ switch ($action) {
             $newresponse->timecreated = time();
             $newresponse->timemodified = time();
             $insertedid = $DB->insert_record('harpiasurvey_responses', $newresponse);
+
+            // Log history entry.
+            if ($DB->get_manager()->table_exists('harpiasurvey_response_history')) {
+                $history = new stdClass();
+                $history->responseid = $insertedid;
+                $history->pageid = $pageid;
+                $history->questionid = $questionid;
+                $history->userid = $USER->id;
+                $history->response = $response;
+                $history->turn_id = $turn_id;
+                $history->timecreated = time();
+                $DB->insert_record('harpiasurvey_response_history', $history);
+            }
             
             // Debug: Log if turn_id is being saved correctly.
             $verify = $DB->get_record('harpiasurvey_responses', ['id' => $insertedid], 'id, turn_id, pageid, questionid, userid');
@@ -366,24 +392,352 @@ switch ($action) {
             break;
         }
 
+        $questionrecords = $DB->get_records_sql(
+            "SELECT q.id, q.type
+               FROM {harpiasurvey_page_questions} pq
+               JOIN {harpiasurvey_questions} q ON q.id = pq.questionid
+              WHERE pq.pageid = :pageid AND pq.enabled = 1 AND q.enabled = 1",
+            ['pageid' => $pageid]
+        );
+        $questiontypes = [];
+        foreach ($questionrecords as $q) {
+            $questiontypes[$q->id] = $q->type;
+        }
+
+        $optionrecords = $DB->get_records_sql(
+            "SELECT questionid, id, value
+               FROM {harpiasurvey_question_options}
+              WHERE questionid IN (
+                    SELECT questionid FROM {harpiasurvey_page_questions} WHERE pageid = :pageid
+              )
+              ORDER BY questionid ASC, sortorder ASC",
+            ['pageid' => $pageid]
+        );
+        $optionsmap = [];
+        foreach ($optionrecords as $opt) {
+            if (!isset($optionsmap[$opt->questionid])) {
+                $optionsmap[$opt->questionid] = [];
+            }
+            $optionsmap[$opt->questionid][(string)$opt->id] = format_string($opt->value);
+        }
+
+        $format_response = function($questiontype, $responsevalue, $map) {
+            if ($responsevalue === null) {
+                return '-';
+            }
+            $value = is_string($responsevalue) ? trim($responsevalue) : $responsevalue;
+            if ($value === '') {
+                return '-';
+            }
+            if ($questiontype === 'multiplechoice') {
+                $decoded = json_decode($value, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                    $labels = [];
+                    foreach ($decoded as $optionid) {
+                        if (isset($map[(string)$optionid])) {
+                            $labels[] = $map[(string)$optionid];
+                        } else {
+                            $labels[] = '[' . $optionid . ']';
+                        }
+                    }
+                    return !empty($labels) ? implode(', ', $labels) : '-';
+                }
+                return $value;
+            }
+            if (in_array($questiontype, ['singlechoice', 'select', 'likert'])) {
+                if (isset($map[(string)$value])) {
+                    return $map[(string)$value];
+                }
+                return $value;
+            }
+            return $value;
+        };
+
         // Get all responses for this turn.
         $responses = $DB->get_records('harpiasurvey_responses', [
             'pageid' => $pageid,
             'userid' => $USER->id,
             'turn_id' => $turn_id
         ], 'questionid ASC', 'questionid, response, timemodified');
-        
+
+        $historyrecords = [];
+        if ($DB->get_manager()->table_exists('harpiasurvey_response_history')) {
+            $historyrecords = $DB->get_records_sql(
+                "SELECT id, questionid, response, timecreated
+                   FROM {harpiasurvey_response_history}
+                  WHERE pageid = :pageid AND userid = :userid AND turn_id = :turn_id
+               ORDER BY timecreated ASC",
+                ['pageid' => $pageid, 'userid' => $USER->id, 'turn_id' => $turn_id]
+            );
+        }
+        $historybyquestion = [];
+        foreach ($historyrecords as $record) {
+            if (!isset($historybyquestion[$record->questionid])) {
+                $historybyquestion[$record->questionid] = [];
+            }
+            $historybyquestion[$record->questionid][] = $record;
+        }
+
         $responsesArray = [];
         foreach ($responses as $response) {
-            $responsesArray[$response->questionid] = [
+            $questionid = $response->questionid;
+            $qtype = $questiontypes[$questionid] ?? null;
+            $qmap = $optionsmap[$questionid] ?? [];
+
+            $historyitems = [];
+            if (isset($historybyquestion[$questionid])) {
+                foreach ($historybyquestion[$questionid] as $historyitem) {
+                    $historyitems[] = [
+                        'time' => userdate($historyitem->timecreated, get_string('strftimedatetimeshort', 'langconfig')),
+                        'response' => $format_response($qtype, $historyitem->response, $qmap),
+                    ];
+                }
+            }
+            $historycount = count($historyitems);
+            $latesthistory = $historycount > 0 ? $historybyquestion[$questionid][$historycount - 1]->timecreated : null;
+            $savedtimestamp = $latesthistory ?? $response->timemodified;
+
+            $responsesArray[$questionid] = [
                 'response' => $response->response,
-                'timemodified' => $response->timemodified
+                'timemodified' => $response->timemodified,
+                'saved_datetime' => $savedtimestamp ? userdate($savedtimestamp, get_string('strftimedatetimeshort', 'langconfig')) : null,
+                'history_count' => $historycount,
+                'history_items' => array_reverse($historyitems)
             ];
         }
         
         echo json_encode([
             'success' => true,
             'responses' => $responsesArray
+        ]);
+        break;
+
+    case 'get_turn_questions':
+        require_sesskey();
+
+        $turn_id = required_param('turn_id', PARAM_INT);
+
+        if (!$page || $page->id != $pageid) {
+            $page = $DB->get_record('harpiasurvey_pages', ['id' => $pageid], '*', MUST_EXIST);
+        }
+        $experiment = $DB->get_record('harpiasurvey_experiments', ['id' => $page->experimentid], '*', MUST_EXIST);
+        if ($experiment->harpiasurveyid != $harpiasurvey->id) {
+            echo json_encode([
+                'success' => false,
+                'message' => 'Invalid page'
+            ]);
+            break;
+        }
+
+        $questions = $DB->get_records_sql(
+            "SELECT pq.id, pq.questionid, pq.enabled, pq.required, pq.min_turn, pq.show_only_turn, pq.hide_on_turn,
+                    q.name, q.type, q.description, q.descriptionformat, q.settings
+               FROM {harpiasurvey_page_questions} pq
+               JOIN {harpiasurvey_questions} q ON q.id = pq.questionid
+              WHERE pq.pageid = :pageid AND pq.enabled = 1 AND q.enabled = 1
+           ORDER BY pq.sortorder ASC",
+            ['pageid' => $pageid]
+        );
+
+        $historybyquestion = [];
+        if ($DB->get_manager()->table_exists('harpiasurvey_response_history')) {
+            $historyrecords = $DB->get_records_sql(
+                "SELECT id, questionid, response, timecreated
+                   FROM {harpiasurvey_response_history}
+                  WHERE pageid = :pageid AND userid = :userid AND turn_id = :turn_id
+               ORDER BY timecreated ASC",
+                ['pageid' => $pageid, 'userid' => $USER->id, 'turn_id' => $turn_id]
+            );
+            foreach ($historyrecords as $record) {
+                if (!isset($historybyquestion[$record->questionid])) {
+                    $historybyquestion[$record->questionid] = [];
+                }
+                $historybyquestion[$record->questionid][] = $record;
+            }
+        }
+
+        $responses = $DB->get_records('harpiasurvey_responses', [
+            'pageid' => $pageid,
+            'userid' => $USER->id,
+            'turn_id' => $turn_id
+        ], 'questionid ASC', 'questionid, response, timemodified');
+        $responsesbyquestion = [];
+        foreach ($responses as $response) {
+            $responsesbyquestion[$response->questionid] = $response;
+        }
+
+        $format_response = function($questiontype, $responsevalue, $map) {
+            if ($responsevalue === null) {
+                return '-';
+            }
+            $value = is_string($responsevalue) ? trim($responsevalue) : $responsevalue;
+            if ($value === '') {
+                return '-';
+            }
+            if ($questiontype === 'multiplechoice') {
+                $decoded = json_decode($value, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                    $labels = [];
+                    foreach ($decoded as $optionid) {
+                        if (isset($map[(string)$optionid])) {
+                            $labels[] = $map[(string)$optionid];
+                        } else {
+                            $labels[] = '[' . $optionid . ']';
+                        }
+                    }
+                    return !empty($labels) ? implode(', ', $labels) : '-';
+                }
+                return $value;
+            }
+            if (in_array($questiontype, ['singlechoice', 'select', 'likert'])) {
+                if (isset($map[(string)$value])) {
+                    return $map[(string)$value];
+                }
+                return $value;
+            }
+            return $value;
+        };
+
+        $behavior = $page->behavior ?? 'continuous';
+        $questionslist = [];
+        foreach ($questions as $question) {
+            $minturn = isset($question->min_turn) && $question->min_turn !== null ? (int)$question->min_turn : 1;
+            $showonlyturn = isset($question->show_only_turn) && $question->show_only_turn !== null ? (int)$question->show_only_turn : null;
+            $hideonturn = isset($question->hide_on_turn) && $question->hide_on_turn !== null ? (int)$question->hide_on_turn : null;
+
+            if ($behavior !== 'qa') {
+                if ($showonlyturn !== null && $showonlyturn !== (int)$turn_id) {
+                    continue;
+                }
+                if ($hideonturn !== null && $hideonturn === (int)$turn_id) {
+                    continue;
+                }
+                if ($minturn > (int)$turn_id) {
+                    continue;
+                }
+            }
+
+            $settings = [];
+            if (!empty($question->settings)) {
+                $settings = json_decode($question->settings, true) ?? [];
+            }
+
+            $options = [];
+            $optionsmap = [];
+            $inputtype = 'radio';
+            $ismultiplechoice = false;
+            if (in_array($question->type, ['singlechoice', 'multiplechoice', 'select', 'likert'])) {
+                $inputtype = ($question->type === 'singlechoice' || $question->type === 'select' || $question->type === 'likert') ? 'radio' : 'checkbox';
+                $ismultiplechoice = ($question->type === 'multiplechoice');
+                if ($question->type === 'likert') {
+                    for ($i = 1; $i <= 5; $i++) {
+                        $options[] = [
+                            'id' => $i,
+                            'value' => (string)$i,
+                            'isdefault' => false,
+                            'inputtype' => 'radio',
+                            'questionid' => $question->questionid,
+                            'nameattr' => 'question_' . $question->questionid . '_turn',
+                        ];
+                        $optionsmap[(string)$i] = (string)$i;
+                    }
+                } else {
+                    $questionoptions = $DB->get_records('harpiasurvey_question_options', [
+                        'questionid' => $question->questionid
+                    ], 'sortorder ASC');
+                    $nameattr = 'question_' . $question->questionid . '_turn';
+                    if ($ismultiplechoice) {
+                        $nameattr .= '[]';
+                    }
+                    foreach ($questionoptions as $opt) {
+                        $options[] = [
+                            'id' => $opt->id,
+                            'value' => format_string($opt->value),
+                            'isdefault' => (bool)$opt->isdefault,
+                            'inputtype' => $inputtype,
+                            'questionid' => $question->questionid,
+                            'nameattr' => $nameattr,
+                        ];
+                        $optionsmap[(string)$opt->id] = format_string($opt->value);
+                    }
+                }
+            }
+
+            $numbersettings = [];
+            if ($question->type === 'number') {
+                $min = $settings['min'] ?? null;
+                $max = $settings['max'] ?? null;
+                $allownegatives = !empty($settings['allownegatives']);
+                if (!$allownegatives && $min === null) {
+                    $min = 0;
+                }
+                $numbersettings = [
+                    'has_min' => $min !== null,
+                    'min_value' => $min,
+                    'has_max' => $max !== null,
+                    'max_value' => $max,
+                    'default' => $settings['default'] ?? null,
+                    'step' => ($settings['numbertype'] ?? 'integer') === 'integer' ? 1 : 0.01,
+                ];
+            }
+
+            $historyitems = [];
+            if (isset($historybyquestion[$question->questionid])) {
+                foreach ($historybyquestion[$question->questionid] as $historyitem) {
+                    $historyitems[] = [
+                        'time' => userdate($historyitem->timecreated, get_string('strftimedatetimeshort', 'langconfig')),
+                        'response' => $format_response($question->type, $historyitem->response, $optionsmap)
+                    ];
+                }
+            }
+            $historycount = count($historyitems);
+            $latesthistory = $historycount > 0 ? $historybyquestion[$question->questionid][$historycount - 1]->timecreated : null;
+            $savedtimestamp = $latesthistory ?? ($responsesbyquestion[$question->questionid]->timemodified ?? null);
+
+            $questionslist[] = [
+                'id' => $question->questionid,
+                'name' => format_string($question->name),
+                'type' => $question->type,
+                'is_required' => isset($question->required) ? (bool)$question->required : true,
+                'required' => isset($question->required) ? (int)$question->required : 1,
+                'description' => format_text($question->description, $question->descriptionformat, [
+                    'context' => $cm->context,
+                    'noclean' => false,
+                    'overflowdiv' => true
+                ]),
+                'options' => $options,
+                'has_options' => !empty($options),
+                'is_multiplechoice' => $ismultiplechoice,
+                'is_select' => ($question->type === 'select'),
+                'is_likert' => ($question->type === 'likert'),
+                'is_number' => ($question->type === 'number'),
+                'numbersettings' => $numbersettings,
+                'is_shorttext' => ($question->type === 'shorttext'),
+                'is_longtext' => ($question->type === 'longtext'),
+                'turn_id' => $turn_id,
+                'pageid' => $pageid,
+                'cmid' => $cmid,
+                'has_history' => ($historycount > 0),
+                'has_history_details' => ($historycount > 1),
+                'history_count' => $historycount,
+                'history_items' => array_reverse($historyitems),
+                'saved_datetime' => $savedtimestamp ? userdate($savedtimestamp, get_string('strftimedatetimeshort', 'langconfig')) : null,
+            ];
+        }
+
+        $renderer = $PAGE->get_renderer('mod_harpiasurvey');
+        $html = $renderer->render_from_template('mod_harpiasurvey/turn_evaluation_questions', [
+            'questions' => $questionslist,
+            'pageid' => $pageid,
+            'turn_id' => $turn_id,
+            'cmid' => $cmid,
+            'has_questions' => !empty($questionslist),
+            'is_qa_mode' => ($behavior === 'qa')
+        ]);
+
+        echo json_encode([
+            'success' => true,
+            'html' => $html
         ]);
         break;
         

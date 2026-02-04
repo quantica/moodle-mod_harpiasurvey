@@ -152,23 +152,85 @@ class page_view implements renderable, templatable {
         $responses = [];
         $responsetimestamps = [];
         if ($this->pageid && $USER->id) {
-            $userresponses = $DB->get_records('harpiasurvey_responses', [
-                'pageid' => $this->pageid,
-                'userid' => $USER->id
-            ]);
+            $userresponses = $DB->get_records_sql(
+                "SELECT questionid, response, timemodified
+                   FROM {harpiasurvey_responses}
+                  WHERE pageid = :pageid AND userid = :userid
+                    AND (turn_id IS NULL OR turn_id = 0)",
+                ['pageid' => $this->pageid, 'userid' => $USER->id]
+            );
             foreach ($userresponses as $response) {
                 $responses[$response->questionid] = $response->response;
                 $responsetimestamps[$response->questionid] = $response->timemodified;
             }
         }
 
+        // Load response history for this user and page (regular questions only).
+        $responsehistory = [];
+        if ($this->pageid && $USER->id && $DB->get_manager()->table_exists('harpiasurvey_response_history')) {
+            $historyrecords = $DB->get_records_sql(
+                "SELECT id, questionid, response, timecreated
+                   FROM {harpiasurvey_response_history}
+                  WHERE pageid = :pageid AND userid = :userid
+                    AND (turn_id IS NULL OR turn_id = 0)
+               ORDER BY timecreated ASC",
+                ['pageid' => $this->pageid, 'userid' => $USER->id]
+            );
+            foreach ($historyrecords as $record) {
+                if (!isset($responsehistory[$record->questionid])) {
+                    $responsehistory[$record->questionid] = [];
+                }
+                $responsehistory[$record->questionid][] = [
+                    'response' => $record->response,
+                    'timecreated' => $record->timecreated
+                ];
+            }
+        }
+
+        $formatresponse = function($questiontype, $responsevalue, $optionsmap = []) {
+            if ($responsevalue === null) {
+                return '-';
+            }
+            $value = is_string($responsevalue) ? trim($responsevalue) : $responsevalue;
+            if ($value === '') {
+                return '-';
+            }
+
+            if ($questiontype === 'multiplechoice') {
+                $decoded = json_decode($value, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                    $labels = [];
+                    foreach ($decoded as $optionid) {
+                        if (isset($optionsmap[$optionid])) {
+                            $labels[] = $optionsmap[$optionid];
+                        } else {
+                            $labels[] = '[' . $optionid . ']';
+                        }
+                    }
+                    return !empty($labels) ? implode(', ', $labels) : '-';
+                }
+                return $value;
+            }
+
+            if (in_array($questiontype, ['singlechoice', 'select', 'likert'])) {
+                if (isset($optionsmap[$value])) {
+                    return $optionsmap[$value];
+                }
+                return $value;
+            }
+
+            return $value;
+        };
+
         // Prepare questions for rendering.
         $questionslist = [];
         $turnevaluationquestions = []; // Questions that evaluate turns (for aichat pages with turns mode).
         $hasnonaiconversationquestions = false;
         
+        $pagebehavior = $this->page->behavior ?? 'continuous';
         // Check if this is a turns-based aichat page.
-        $isturnspage = ($this->page->type === 'aichat' && ($this->page->behavior ?? 'continuous') === 'turns');
+        $isturnspage = ($this->page->type === 'aichat' && $pagebehavior === 'turns');
+        $isqamode = ($this->page->type === 'aichat' && $pagebehavior === 'qa');
         
         // Check if this is a multi-model page (for continuous mode with multiple models).
         // We need to check this early to determine if we should skip questions in the regular list.
@@ -193,33 +255,9 @@ class page_view implements renderable, templatable {
                 continue;
             }
 
-            // For turns-based pages, skip questions that have turn visibility rules in the regular list.
-            // These questions will only appear in the turn evaluation questions section.
-            if ($isturnspage) {
-                // Check if question has any turn visibility rules.
-                $hasturnvisibility = false;
-                
-                // Check show_only_turn: if set, question only shows on that specific turn.
-                if (isset($question->show_only_turn) && $question->show_only_turn !== null && $question->show_only_turn !== '') {
-                    $hasturnvisibility = true;
-                    // If show_only_turn is set, always skip from regular list (it will appear in turn evaluation section).
-                    // The JavaScript will filter it based on the current turn.
-                    continue;
-                }
-                
-                // Check hide_on_turn: if set, question has turn visibility rules.
-                if (isset($question->hide_on_turn) && $question->hide_on_turn !== null && $question->hide_on_turn !== '') {
-                    $hasturnvisibility = true;
-                    // If hide_on_turn is set, always skip from regular list (it will appear in turn evaluation section).
-                    continue;
-                }
-                
-                // Check min_turn: if greater than 1, question has turn visibility rules.
-                if (isset($question->min_turn) && $question->min_turn !== null && $question->min_turn !== '' && (int)$question->min_turn > 1) {
-                    $hasturnvisibility = true;
-                    // If min_turn is greater than 1, always skip from regular list (it will appear in turn evaluation section).
-                    continue;
-                }
+            // For turns-based and Q&A aichat pages, show all questions only in the evaluation section.
+            if ($isturnspage || $isqamode) {
+                continue;
             }
 
             global $DB;
@@ -237,6 +275,7 @@ class page_view implements renderable, templatable {
             $options = [];
             $inputtype = 'radio'; // Default for single choice.
             $ismultiplechoice = false;
+            $optionsmap = [];
             if (in_array($question->type, ['singlechoice', 'multiplechoice', 'select', 'likert'])) {
                 $inputtype = ($question->type === 'singlechoice' || $question->type === 'select' || $question->type === 'likert') ? 'radio' : 'checkbox';
                 $ismultiplechoice = ($question->type === 'multiplechoice');
@@ -253,6 +292,7 @@ class page_view implements renderable, templatable {
                             'questionid' => $question->questionid,
                             'nameattr' => 'question_' . $question->questionid,
                         ];
+                        $optionsmap[(string)$i] = (string)$i;
                     }
                 } else {
                     // For other types, load from database.
@@ -290,6 +330,7 @@ class page_view implements renderable, templatable {
                             'questionid' => $question->questionid,
                             'nameattr' => $nameattr,
                         ];
+                        $optionsmap[(string)$opt->id] = format_string($opt->value);
                     }
                 }
             }
@@ -318,7 +359,29 @@ class page_view implements renderable, templatable {
 
             // Get saved response value (already loaded above as $savedresponse).
             $savedresponsevalue = $savedresponse;
-            $savedtimestamp = $responsetimestamps[$question->questionid] ?? null;
+            $historyitems = [];
+            if (isset($responsehistory[$question->questionid])) {
+                foreach ($responsehistory[$question->questionid] as $historyitem) {
+                    $historyitems[] = [
+                        'time' => userdate($historyitem['timecreated'], get_string('strftimedatetimeshort', 'langconfig')),
+                        'response' => $formatresponse($question->type, $historyitem['response'], $optionsmap)
+                    ];
+                }
+            }
+            $historycount = count($historyitems);
+            $latesthistory = $historycount > 0 ? $responsehistory[$question->questionid][$historycount - 1]['timecreated'] : null;
+            $savedtimestamp = $latesthistory ?? ($responsetimestamps[$question->questionid] ?? null);
+            if ($historycount === 0 && array_key_exists($question->questionid, $responses)) {
+                $fallbacktimestamp = $savedtimestamp ?? time();
+                $historyitems[] = [
+                    'time' => userdate($fallbacktimestamp, get_string('strftimedatetimeshort', 'langconfig')),
+                    'response' => $formatresponse($question->type, $savedresponsevalue, $optionsmap)
+                ];
+                $historycount = 1;
+                if (!$savedtimestamp) {
+                    $savedtimestamp = $fallbacktimestamp;
+                }
+            }
             
             // Track if we have questions (all questions are now regular questions, no aiconversation type).
             $hasnonaiconversationquestions = true;
@@ -327,6 +390,8 @@ class page_view implements renderable, templatable {
                 'id' => $question->questionid,
                 'name' => format_string($question->name),
                 'type' => $question->type,
+                'is_required' => isset($question->required) ? (bool)$question->required : true,
+                'required' => isset($question->required) ? (int)$question->required : 1,
                 'description' => format_text($question->description, $question->descriptionformat, [
                     'context' => $this->context,
                     'noclean' => false,
@@ -345,6 +410,10 @@ class page_view implements renderable, templatable {
                 'has_saved_response' => !empty($savedresponsevalue),
                 'saved_timestamp' => $savedtimestamp,
                 'saved_datetime' => $savedtimestamp ? userdate($savedtimestamp, get_string('strftimedatetimeshort', 'langconfig')) : null,
+                'has_history' => ($historycount > 0),
+                'has_history_details' => ($historycount > 1),
+                'history_count' => $historycount,
+                'history_items' => array_reverse($historyitems),
                 'cmid' => $this->cmid,
                 'pageid' => $this->pageid,
             ];
@@ -433,6 +502,8 @@ class page_view implements renderable, templatable {
                     'id' => $question->questionid,
                     'name' => format_string($question->name),
                     'type' => $question->type,
+                    'is_required' => isset($question->required) ? (bool)$question->required : true,
+                    'required' => isset($question->required) ? (int)$question->required : 1,
                     'description' => format_text($question->description, $question->descriptionformat, [
                         'context' => $this->context,
                         'noclean' => false,
@@ -644,7 +715,7 @@ class page_view implements renderable, templatable {
                 // Capture $this in a variable for use in closure.
                 $that = $this;
                 // Helper function to format a question for template.
-                $formatQuestion = function($question, $responses, $responsetimestamps) use ($DB, $that) {
+                $formatQuestion = function($question, $responses, $responsetimestamps) use ($DB, $that, $responsehistory, $formatresponse) {
                     // Load question settings from JSON.
                     $settings = [];
                     if (!empty($question->settings)) {
@@ -658,6 +729,7 @@ class page_view implements renderable, templatable {
                     $options = [];
                     $inputtype = 'radio';
                     $ismultiplechoice = false;
+                    $optionsmap = [];
                     if (in_array($question->type, ['singlechoice', 'multiplechoice', 'select', 'likert'])) {
                         $inputtype = ($question->type === 'singlechoice' || $question->type === 'select' || $question->type === 'likert') ? 'radio' : 'checkbox';
                         $ismultiplechoice = ($question->type === 'multiplechoice');
@@ -674,6 +746,7 @@ class page_view implements renderable, templatable {
                                     'questionid' => $question->questionid,
                                     'nameattr' => 'question_' . $question->questionid,
                                 ];
+                                $optionsmap[(string)$i] = (string)$i;
                             }
                         } else {
                             // For other types, load from database.
@@ -707,6 +780,7 @@ class page_view implements renderable, templatable {
                                     'questionid' => $question->questionid,
                                     'nameattr' => $nameattr,
                                 ];
+                                $optionsmap[(string)$opt->id] = format_string($opt->value);
                             }
                         }
                     }
@@ -730,12 +804,36 @@ class page_view implements renderable, templatable {
                         ];
                     }
                     
-                    $savedtimestamp = $responsetimestamps[$question->questionid] ?? null;
+                    $historyitems = [];
+                    if (isset($responsehistory[$question->questionid])) {
+                        foreach ($responsehistory[$question->questionid] as $historyitem) {
+                            $historyitems[] = [
+                                'time' => userdate($historyitem['timecreated'], get_string('strftimedatetimeshort', 'langconfig')),
+                                'response' => $formatresponse($question->type, $historyitem['response'], $optionsmap)
+                            ];
+                        }
+                    }
+                    $historycount = count($historyitems);
+                    $latesthistory = $historycount > 0 ? $responsehistory[$question->questionid][$historycount - 1]['timecreated'] : null;
+                    $savedtimestamp = $latesthistory ?? ($responsetimestamps[$question->questionid] ?? null);
+                    if ($historycount === 0 && array_key_exists($question->questionid, $responses)) {
+                        $fallbacktimestamp = $savedtimestamp ?? time();
+                        $historyitems[] = [
+                            'time' => userdate($fallbacktimestamp, get_string('strftimedatetimeshort', 'langconfig')),
+                            'response' => $formatresponse($question->type, $savedresponse, $optionsmap)
+                        ];
+                        $historycount = 1;
+                        if (!$savedtimestamp) {
+                            $savedtimestamp = $fallbacktimestamp;
+                        }
+                    }
                     
                     return [
                         'id' => $question->questionid,
                         'name' => format_string($question->name),
                         'type' => $question->type,
+                        'is_required' => isset($question->required) ? (bool)$question->required : true,
+                        'required' => isset($question->required) ? (int)$question->required : 1,
                         'description' => format_text($question->description, $question->descriptionformat, [
                             'context' => $that->context,
                             'noclean' => false,
@@ -754,6 +852,10 @@ class page_view implements renderable, templatable {
                         'has_saved_response' => !empty($savedresponse),
                         'saved_timestamp' => $savedtimestamp,
                         'saved_datetime' => $savedtimestamp ? userdate($savedtimestamp, get_string('strftimedatetimeshort', 'langconfig')) : null,
+                        'has_history' => ($historycount > 0),
+                        'has_history_details' => ($historycount > 1),
+                        'history_count' => $historycount,
+                        'history_items' => array_reverse($historyitems),
                         'cmid' => $that->cmid,
                         'pageid' => $that->pageid,
                     ];
@@ -866,7 +968,7 @@ class page_view implements renderable, templatable {
                 // Load questions for this subpage.
                 $subpagequestions = [];
                 $subpagequestionrecords = $DB->get_records_sql(
-                    "SELECT sq.id, sq.subpageid, sq.questionid, sq.enabled, sq.sortorder,
+                    "SELECT sq.id, sq.subpageid, sq.questionid, sq.enabled, sq.required, sq.sortorder,
                             sq.turn_visibility_type, sq.turn_number,
                             q.id as qid, q.name, q.type, q.description, q.descriptionformat, q.settings
                        FROM {harpiasurvey_subpage_questions} sq
@@ -912,12 +1014,14 @@ class page_view implements renderable, templatable {
                     
                     // Prepare options for template.
                     $optionslist = [];
+                    $optionsmap = [];
                     foreach ($options as $opt) {
                         $optionslist[] = [
                             'id' => $opt->id,
                             'value' => format_string($opt->value),
                             'isdefault' => (bool)$opt->isdefault,
                         ];
+                        $optionsmap[(string)$opt->id] = format_string($opt->value);
                     }
                     
                     // Determine question type flags.
@@ -926,11 +1030,37 @@ class page_view implements renderable, templatable {
                     $islongtext = ($sq->type === 'longtext');
                     $islikert = ($sq->type === 'likert');
                     
+                    $historyitems = [];
+                    if (isset($responsehistory[$sq->questionid])) {
+                        foreach ($responsehistory[$sq->questionid] as $historyitem) {
+                            $historyitems[] = [
+                                'time' => userdate($historyitem['timecreated'], get_string('strftimedatetimeshort', 'langconfig')),
+                                'response' => $formatresponse($sq->type, $historyitem['response'], $optionsmap)
+                            ];
+                        }
+                    }
+                    $historycount = count($historyitems);
+                    $latesthistory = $historycount > 0 ? $responsehistory[$sq->questionid][$historycount - 1]['timecreated'] : null;
+                    $savedtimestamp = $latesthistory ?? null;
+                    if ($historycount === 0 && $savedresponse !== null) {
+                        $fallbacktimestamp = $savedtimestamp ?? time();
+                        $historyitems[] = [
+                            'time' => userdate($fallbacktimestamp, get_string('strftimedatetimeshort', 'langconfig')),
+                            'response' => $formatresponse($sq->type, $savedresponse, $optionsmap)
+                        ];
+                        $historycount = 1;
+                        if (!$savedtimestamp) {
+                            $savedtimestamp = $fallbacktimestamp;
+                        }
+                    }
+
                     $subpagequestions[] = [
                         'id' => $sq->qid,
                         'questionid' => $sq->questionid,
                         'name' => format_string($sq->name),
                         'type' => $sq->type,
+                        'is_required' => isset($sq->required) ? (bool)$sq->required : true,
+                        'required' => isset($sq->required) ? (int)$sq->required : 1,
                         'description' => $questiondescription,
                         'has_description' => !empty(trim(strip_tags($questiondescription))),
                         'options' => $optionslist,
@@ -944,6 +1074,12 @@ class page_view implements renderable, templatable {
                         'is_longtext' => $islongtext,
                         'saved_response' => $savedresponse,
                         'has_saved_response' => !empty($savedresponse),
+                        'saved_timestamp' => $savedtimestamp,
+                        'saved_datetime' => $savedtimestamp ? userdate($savedtimestamp, get_string('strftimedatetimeshort', 'langconfig')) : null,
+                        'has_history' => ($historycount > 0),
+                        'has_history_details' => ($historycount > 1),
+                        'history_count' => $historycount,
+                        'history_items' => array_reverse($historyitems),
                         'settings' => $settings,
                         'turn_visibility_type' => $sq->turn_visibility_type ?? 'all_turns',
                         'turn_number' => $sq->turn_number,
