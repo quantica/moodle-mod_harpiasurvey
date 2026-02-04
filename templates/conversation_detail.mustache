@@ -41,11 +41,13 @@
             {{> mod_harpiasurvey/tree_node }}
         {{/direct_branches}}
     </div>
-    {{#root_node.can_create_branch}}
-    <div class="detail-footer mt-2 pt-2 border-top">
-        <button type="button" class="btn btn-xs btn-success btn-block create-direct-branch-btn" data-pageid="{{pageid}}" data-cmid="{{cmid}}" data-root-turn-id="{{root_turn_id}}" style="padding: 0.2rem 0.5rem;">
-            <i class="fa fa-code-branch" aria-hidden="true"></i> {{#str}}createturninsubtree, mod_harpiasurvey{{/str}}
-        </button>
-    </div>
-    {{/root_node.can_create_branch}}
+    {{#editingmode}}
+        {{#root_node.can_create_branch}}
+        <div class="detail-footer mt-2 pt-2 border-top">
+            <button type="button" class="btn btn-xs btn-success btn-block create-direct-branch-btn" data-pageid="{{pageid}}" data-cmid="{{cmid}}" data-root-turn-id="{{root_turn_id}}" style="padding: 0.2rem 0.5rem;">
+                <i class="fa fa-code-branch" aria-hidden="true"></i> {{#str}}createturninsubtree, mod_harpiasurvey{{/str}}
+            </button>
+        </div>
+        {{/root_node.can_create_branch}}
+    {{/editingmode}}
 </div>

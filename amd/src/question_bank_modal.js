@@ -31,6 +31,7 @@ import $ from 'jquery';
 
 let modalInstance = null;
 let initialized = false;
+let editingMode = false;
 
 /**
  * Initialize the question bank modal functionality.
@@ -38,12 +39,14 @@ let initialized = false;
  *
  * @param {number} cmid Course module ID
  * @param {number} pageid Page ID
+ * @param {boolean} editingmode Whether editing mode is enabled
  */
-export const init = (cmid, pageid) => {
+export const init = (cmid, pageid, editingmode) => {
     if (initialized) {
         // Event listener already attached (can be called multiple times).
         return;
     }
+    editingMode = !!editingmode;
 
     $("body").on("click", ".question-bank-modal-trigger", function(e) {
         e.preventDefault();
@@ -84,7 +87,8 @@ export const showModal = (cmid, pageid) => {
         return Modal.create({
             title: title,
             body: Templates.render('mod_harpiasurvey/question_bank_modal_body', {
-                loading: true
+                loading: true,
+                editingmode: editingMode
             }),
             large: true,
             show: true,
@@ -107,7 +111,8 @@ export const showModal = (cmid, pageid) => {
         // Clean up when modal is hidden.
         modal.getRoot().on(ModalEvents.hidden, () => {
             modal.setBody(Templates.render('mod_harpiasurvey/question_bank_modal_body', {
-                loading: true
+                loading: true,
+                editingmode: editingMode
             }));
         });
 
@@ -143,12 +148,14 @@ const loadQuestions = (cmid, pageid) => {
                     has_questions: response.questions.length > 0,
                     is_aichat_page: response.is_aichat_page || false,
                     cmid: cmid,
-                    pageid: pageid
+                    pageid: pageid,
+                    editingmode: editingMode
                 });
             } else {
                 return Templates.render('mod_harpiasurvey/question_bank_modal_body', {
                     error: response.message || 'Error loading questions',
-                    has_questions: false
+                    has_questions: false,
+                    editingmode: editingMode
                 });
             }
         })
@@ -161,7 +168,8 @@ const loadQuestions = (cmid, pageid) => {
             return bodyPromise.then(() => {
                 modalInstance.setBody(Templates.render('mod_harpiasurvey/question_bank_modal_body', {
                     error: 'Error loading questions',
-                    has_questions: false
+                    has_questions: false,
+                    editingmode: editingMode
                 }));
             });
             Notification.exception(error);
@@ -232,7 +240,8 @@ export const showSubpageModal = (cmid, pageid, subpageid) => {
         return Modal.create({
             title: title,
             body: Templates.render('mod_harpiasurvey/question_bank_modal_body', {
-                loading: true
+                loading: true,
+                editingmode: editingMode
             }),
             large: true,
             show: true,
@@ -255,7 +264,8 @@ export const showSubpageModal = (cmid, pageid, subpageid) => {
         // Clean up when modal is hidden.
         modal.getRoot().on(ModalEvents.hidden, () => {
             modal.setBody(Templates.render('mod_harpiasurvey/question_bank_modal_body', {
-                loading: true
+                loading: true,
+                editingmode: editingMode
             }));
         });
 
@@ -292,12 +302,14 @@ const loadSubpageQuestions = (cmid, pageid, subpageid) => {
                     cmid: cmid,
                     pageid: pageid,
                     subpageid: subpageid,
-                    is_subpage: true
+                    is_subpage: true,
+                    editingmode: editingMode
                 });
             } else {
                 return Templates.render('mod_harpiasurvey/question_bank_modal_body', {
                     error: response.message || 'Error loading questions',
-                    has_questions: false
+                    has_questions: false,
+                    editingmode: editingMode
                 });
             }
         })
@@ -310,7 +322,8 @@ const loadSubpageQuestions = (cmid, pageid, subpageid) => {
             return bodyPromise.then(() => {
                 subpageModalInstance.setBody(Templates.render('mod_harpiasurvey/question_bank_modal_body', {
                     error: 'Error loading questions',
-                    has_questions: false
+                    has_questions: false,
+                    editingmode: editingMode
                 }));
             });
             Notification.exception(error);
@@ -358,4 +371,3 @@ const addQuestionToSubpage = (cmid, pageid, subpageid, questionId) => {
         })
         .catch(Notification.exception);
 };
-

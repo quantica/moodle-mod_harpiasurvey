@@ -54,34 +54,36 @@
                 <i class="fa fa-circle text-primary" aria-hidden="true" style="font-size: 0.5rem;"></i>
             </span>
         {{/is_current}}
-        {{#has_children}}
-            <button type="button" class="btn btn-xs btn-outline-success ml-2 create-branch-from-tree-btn" 
-                    data-pageid="{{pageid}}" 
-                    data-cmid="{{cmid}}" 
-                    data-turn-id="{{turn_id}}"
-                    data-branch-mode="enter"
-                    data-toggle="popover"
-                    data-trigger="hover"
-                    data-placement="top"
-                    data-content="{{#str}}viewbranches, mod_harpiasurvey{{/str}}"
-                    aria-label="{{#str}}viewbranches, mod_harpiasurvey{{/str}}" style="padding: 0.1rem 0.4rem;">
-                <span class="branch-label d-none d-sm-inline">{{#str}}viewbranches, mod_harpiasurvey{{/str}}</span>
-            </button>
-        {{/has_children}}
-        {{^has_children}}
-        {{#can_create_branch}}
-            <button type="button" class="btn btn-xs btn-{{#is_current}}light{{/is_current}}{{^is_current}}outline-success{{/is_current}} ml-2 create-branch-from-tree-btn" 
-                    data-pageid="{{pageid}}" 
-                    data-cmid="{{cmid}}" 
-                    data-turn-id="{{turn_id}}"
-                    data-toggle="popover"
-                    data-trigger="hover"
-                    data-placement="top"
-                    data-content="{{#str}}createbranch, mod_harpiasurvey{{/str}}"
-                    aria-label="{{#str}}createbranch, mod_harpiasurvey{{/str}}" style="padding: 0.1rem 0.25rem;">
-                <i class="fa fa-code-branch fa-xs" aria-hidden="true"></i>
-            </button>
-        {{/can_create_branch}}
-        {{/has_children}}
+        {{#editingmode}}
+            {{#has_children}}
+                <button type="button" class="btn btn-xs btn-outline-success ml-2 create-branch-from-tree-btn" 
+                        data-pageid="{{pageid}}" 
+                        data-cmid="{{cmid}}" 
+                        data-turn-id="{{turn_id}}"
+                        data-branch-mode="enter"
+                        data-toggle="popover"
+                        data-trigger="hover"
+                        data-placement="top"
+                        data-content="{{#str}}viewbranches, mod_harpiasurvey{{/str}}"
+                        aria-label="{{#str}}viewbranches, mod_harpiasurvey{{/str}}" style="padding: 0.1rem 0.4rem;">
+                    <span class="branch-label d-none d-sm-inline">{{#str}}viewbranches, mod_harpiasurvey{{/str}}</span>
+                </button>
+            {{/has_children}}
+            {{^has_children}}
+            {{#can_create_branch}}
+                <button type="button" class="btn btn-xs btn-{{#is_current}}light{{/is_current}}{{^is_current}}outline-success{{/is_current}} ml-2 create-branch-from-tree-btn" 
+                        data-pageid="{{pageid}}" 
+                        data-cmid="{{cmid}}" 
+                        data-turn-id="{{turn_id}}"
+                        data-toggle="popover"
+                        data-trigger="hover"
+                        data-placement="top"
+                        data-content="{{#str}}createbranch, mod_harpiasurvey{{/str}}"
+                        aria-label="{{#str}}createbranch, mod_harpiasurvey{{/str}}" style="padding: 0.1rem 0.25rem;">
+                    <i class="fa fa-code-branch fa-xs" aria-hidden="true"></i>
+                </button>
+            {{/can_create_branch}}
+            {{/has_children}}
+        {{/editingmode}}
     </div>
 </div>

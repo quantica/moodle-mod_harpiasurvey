@@ -31,23 +31,25 @@
 <div class="page-view">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h3 class="mb-0">{{title}}</h3>
-        {{#canmanage}}
-            <div class="d-flex gap-2">
-                {{#has_editurl}}
-                    <a href="{{editurl}}" class="btn btn-sm btn-outline-primary">
-                        <i class="fa fa-edit" aria-hidden="true"></i> {{#str}}edit, moodle{{/str}}
-                    </a>
-                {{/has_editurl}}
-                {{#has_deleteurl}}
-                    <a href="{{deleteurl}}" 
-                       class="btn btn-sm btn-outline-danger" 
-                       title="{{#str}}delete, moodle{{/str}}"
-                       onclick="return confirm('{{#str}}confirmdelete, core{{/str}}');">
-                        <i class="fa fa-trash" aria-hidden="true"></i> {{#str}}delete, moodle{{/str}}
-                    </a>
-                {{/has_deleteurl}}
-            </div>
-        {{/canmanage}}
+        {{#editingmode}}
+            {{#canmanage}}
+                <div class="d-flex gap-2">
+                    {{#has_editurl}}
+                        <a href="{{editurl}}" class="btn btn-sm btn-outline-primary">
+                            <i class="fa fa-edit" aria-hidden="true"></i> {{#str}}edit, moodle{{/str}}
+                        </a>
+                    {{/has_editurl}}
+                    {{#has_deleteurl}}
+                        <a href="{{deleteurl}}" 
+                           class="btn btn-sm btn-outline-danger" 
+                           title="{{#str}}delete, moodle{{/str}}"
+                           onclick="return confirm('{{#str}}confirmdelete, core{{/str}}');">
+                            <i class="fa fa-trash" aria-hidden="true"></i> {{#str}}delete, moodle{{/str}}
+                        </a>
+                    {{/has_deleteurl}}
+                </div>
+            {{/canmanage}}
+        {{/editingmode}}
     </div>
     
     {{#has_description}}

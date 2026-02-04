@@ -73,7 +73,7 @@ class experiments_table implements renderable, templatable {
      * @return array
      */
     public function export_for_template(renderer_base $output) {
-        global $CFG, $OUTPUT;
+        global $CFG, $OUTPUT, $PAGE;
 
         // Prepare experiments list.
         $experimentslist = [];
@@ -161,6 +161,7 @@ class experiments_table implements renderable, templatable {
             'has_experiments' => !empty($experimentslist),
             'noexperiments' => get_string('noexperiments', 'mod_harpiasurvey'),
             'canmanage' => $this->canmanage,
+            'editingmode' => $PAGE->user_is_editing(),
             'actionurls' => $actionurls,
             'experimentnamelabel' => get_string('experimentname', 'mod_harpiasurvey'),
             'participantslabel' => get_string('participants', 'mod_harpiasurvey'),
@@ -171,4 +172,3 @@ class experiments_table implements renderable, templatable {
         ];
     }
 }
-

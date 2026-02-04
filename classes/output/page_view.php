@@ -136,7 +136,7 @@ class page_view implements renderable, templatable {
      * @return array
      */
     public function export_for_template(renderer_base $output) {
-        global $CFG, $DB, $USER;
+        global $CFG, $DB, $USER, $PAGE;
 
         // Format the page description.
         $description = format_text($this->page->description, $this->page->descriptionformat, [
@@ -1111,6 +1111,7 @@ class page_view implements renderable, templatable {
             'deleteurl' => $this->deleteurl,
             'has_deleteurl' => !empty($this->deleteurl),
             'canmanage' => $this->canmanage,
+            'editingmode' => $PAGE->user_is_editing(),
             'can_navigate' => $this->cannavigate,
             'questions' => $questionslist,
             'has_questions' => !empty($questionslist),

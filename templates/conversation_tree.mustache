@@ -46,13 +46,14 @@
             </div>
         </div>
         <div class="card-footer bg-light border-top py-2">
-            <button type="button" class="btn btn-sm btn-success btn-block create-root-btn font-weight-bold mb-2" data-pageid="{{pageid}}" data-cmid="{{cmid}}">
-                <i class="fa fa-plus-circle" aria-hidden="true"></i> {{#str}}newconversation, mod_harpiasurvey{{/str}}
-            </button>
+            {{#editingmode}}
+                <button type="button" class="btn btn-sm btn-success btn-block create-root-btn font-weight-bold mb-2" data-pageid="{{pageid}}" data-cmid="{{cmid}}">
+                    <i class="fa fa-plus-circle" aria-hidden="true"></i> {{#str}}newconversation, mod_harpiasurvey{{/str}}
+                </button>
+            {{/editingmode}}
             <button type="button" class="btn btn-sm btn-outline-primary btn-block export-conversation-btn" data-pageid="{{pageid}}" data-cmid="{{cmid}}" title="{{#str}}exportconversation, mod_harpiasurvey{{/str}}">
                 <i class="fa fa-download" aria-hidden="true"></i> {{#str}}exportconversation, mod_harpiasurvey{{/str}}
             </button>
         </div>
     </div>
 </div>
-

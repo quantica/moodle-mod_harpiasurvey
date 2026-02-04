@@ -73,7 +73,7 @@ class question_bank implements renderable, templatable {
      * @return array
      */
     public function export_for_template(renderer_base $output) {
-        global $CFG, $OUTPUT;
+        global $CFG, $OUTPUT, $PAGE;
 
         // Prepare questions list.
         $questionslist = [];
@@ -151,7 +151,7 @@ class question_bank implements renderable, templatable {
             'descriptionlabel' => get_string('description', 'mod_harpiasurvey'),
             'actionslabel' => get_string('actions', 'mod_harpiasurvey'),
             'wwwroot' => $CFG->wwwroot,
+            'editingmode' => $PAGE->user_is_editing(),
         ];
     }
 }
-

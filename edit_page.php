@@ -125,7 +125,8 @@ $PAGE->set_context($context);
 // Always load it, but it will only work when a page exists (button only shows for existing pages).
 $PAGE->requires->js_call_amd('mod_harpiasurvey/question_bank_modal', 'init', [
     $cm->id,
-    $pageid ? $pageid : 0
+    $pageid ? $pageid : 0,
+    $PAGE->user_is_editing()
 ]);
 
 // Load JavaScript for edit page functionality (evaluates conversation dropdown).

@@ -74,6 +74,7 @@
                     <div class="text-muted small py-2">{{nopages}}</div>
                 {{/has_pages}}
             </div>
+            {{#editingmode}}
             {{#canmanage}}
                 <div class="ml-2 mt-2 mt-md-0">
                     <a href="{{addpageurl}}" class="btn btn-primary btn-sm add-page-btn">
@@ -81,6 +82,7 @@
                     </a>
                 </div>
             {{/canmanage}}
+            {{/editingmode}}
         </div>
     </div>
 </div>

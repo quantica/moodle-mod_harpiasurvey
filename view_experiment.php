@@ -124,7 +124,8 @@ $turn = optional_param('turn', null, PARAM_INT);
 if ($pageid && $edit) {
     $PAGE->requires->js_call_amd('mod_harpiasurvey/question_bank_modal', 'init', [
         $cm->id,
-        $pageid
+        $pageid,
+        $PAGE->user_is_editing()
     ]);
 }
 

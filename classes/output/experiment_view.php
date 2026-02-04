@@ -143,7 +143,7 @@ class experiment_view implements renderable, templatable {
      * @return array
      */
     public function export_for_template(renderer_base $output) {
-        global $CFG;
+        global $CFG, $PAGE;
 
         // Prepare pages list.
         $pageslist = [];
@@ -244,6 +244,7 @@ class experiment_view implements renderable, templatable {
             'backtocourseurl' => $backtocourseurl->out(false),
             'backtocourselabel' => get_string('backtocourse', 'mod_harpiasurvey'),
             'canmanage' => $this->canmanage,
+            'editingmode' => $PAGE->user_is_editing(),
             'can_navigate' => $this->cannavigate,
             'wwwroot' => $CFG->wwwroot,
             'navigation_mode' => $this->navigation_mode,

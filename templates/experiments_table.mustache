@@ -43,11 +43,13 @@
                         <td>{{maxparticipants}}</td>
                         <td>{{status}}</td>
                         <td>
-                            {{#canmanage}}
-                                <a href="{{statsurl}}" title="{{#str}}viewstats, mod_harpiasurvey{{/str}}">{{{statsicon}}}</a>
-                                <a href="{{editurl}}" title="{{#str}}edit, moodle{{/str}}">{{{editicon}}}</a>
-                                <a href="{{deleteurl}}" title="{{#str}}delete, moodle{{/str}}">{{{deleteicon}}}</a>
-                            {{/canmanage}}
+                            {{#editingmode}}
+                                {{#canmanage}}
+                                    <a href="{{statsurl}}" title="{{#str}}viewstats, mod_harpiasurvey{{/str}}">{{{statsicon}}}</a>
+                                    <a href="{{editurl}}" title="{{#str}}edit, moodle{{/str}}">{{{editicon}}}</a>
+                                    <a href="{{deleteurl}}" title="{{#str}}delete, moodle{{/str}}">{{{deleteicon}}}</a>
+                                {{/canmanage}}
+                            {{/editingmode}}
                         </td>
                     </tr>
                 {{/experiments}}
@@ -60,13 +62,14 @@
         </tbody>
     </table>
 
-    {{#canmanage}}
-        {{#actionurls}}
-            <div class="harpiasurvey-actions mt-3">
-                <a href="{{createurl}}" class="btn btn-primary">{{createlabel}}</a>
-                <a href="{{registerurl}}" class="btn btn-secondary ml-2">{{registerlabel}}</a>
-            </div>
-        {{/actionurls}}
-    {{/canmanage}}
+    {{#editingmode}}
+        {{#canmanage}}
+            {{#actionurls}}
+                <div class="harpiasurvey-actions mt-3">
+                    <a href="{{createurl}}" class="btn btn-primary">{{createlabel}}</a>
+                    <a href="{{registerurl}}" class="btn btn-secondary ml-2">{{registerlabel}}</a>
+                </div>
+            {{/actionurls}}
+        {{/canmanage}}
+    {{/editingmode}}
 </div>
-

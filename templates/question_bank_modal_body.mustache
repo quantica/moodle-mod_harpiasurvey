@@ -52,16 +52,18 @@
                                 <td>{{typedisplay}}</td>
                                 <td>{{description}}</td>
                                 <td>
-                                    {{#is_subpage}}
-                                        <button class="btn btn-sm btn-primary" data-action="add-question-to-subpage" data-questionid="{{id}}">
-                                            {{#str}}add, mod_harpiasurvey{{/str}}
-                                        </button>
-                                    {{/is_subpage}}
-                                    {{^is_subpage}}
-                                        <button class="btn btn-sm btn-primary" data-action="add-question" data-questionid="{{id}}">
-                                            {{#str}}add, mod_harpiasurvey{{/str}}
-                                        </button>
-                                    {{/is_subpage}}
+                                    {{#editingmode}}
+                                        {{#is_subpage}}
+                                            <button class="btn btn-sm btn-primary" data-action="add-question-to-subpage" data-questionid="{{id}}">
+                                                {{#str}}add, mod_harpiasurvey{{/str}}
+                                            </button>
+                                        {{/is_subpage}}
+                                        {{^is_subpage}}
+                                            <button class="btn btn-sm btn-primary" data-action="add-question" data-questionid="{{id}}">
+                                                {{#str}}add, mod_harpiasurvey{{/str}}
+                                            </button>
+                                        {{/is_subpage}}
+                                    {{/editingmode}}
                                 </td>
                             </tr>
                         {{/questions}}
@@ -76,4 +78,3 @@
         {{/has_questions}}
     {{/error}}
 {{/loading}}
-

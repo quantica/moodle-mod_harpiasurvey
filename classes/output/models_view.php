@@ -80,7 +80,7 @@ class models_view implements renderable, templatable {
      * @return array
      */
     public function export_for_template(renderer_base $output) {
-        global $CFG;
+        global $CFG, $PAGE;
 
         // Prepare models list.
         $modelslist = [];
@@ -118,6 +118,7 @@ class models_view implements renderable, templatable {
             'has_models' => !empty($modelslist),
             'nodels' => get_string('nodels', 'mod_harpiasurvey'),
             'canmanage' => (bool)$this->canmanage,
+            'editingmode' => $PAGE->user_is_editing(),
             'wwwroot' => $CFG->wwwroot,
             'namelabel' => get_string('modelname', 'mod_harpiasurvey'),
             'modellabel' => get_string('model', 'mod_harpiasurvey'),
@@ -136,4 +137,3 @@ class models_view implements renderable, templatable {
         ];
     }
 }
-
