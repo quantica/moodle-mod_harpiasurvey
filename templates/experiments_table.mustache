@@ -45,9 +45,9 @@
                         <td>
                             {{#editingmode}}
                                 {{#canmanage}}
-                                    <a href="{{statsurl}}" title="{{#str}}viewstats, mod_harpiasurvey{{/str}}">{{{statsicon}}}</a>
-                                    <a href="{{editurl}}" title="{{#str}}edit, moodle{{/str}}">{{{editicon}}}</a>
-                                    <a href="{{deleteurl}}" title="{{#str}}delete, moodle{{/str}}">{{{deleteicon}}}</a>
+                                    <a href="{{statsurl}}" title="{{#str}}viewstats, mod_harpiasurvey{{/str}}" data-testid="harpiasurvey-stats-experiment-{{id}}">{{{statsicon}}}</a>
+                                    <a href="{{editurl}}" title="{{#str}}edit, moodle{{/str}}" data-testid="harpiasurvey-edit-experiment-{{id}}">{{{editicon}}}</a>
+                                    <a href="{{deleteurl}}" title="{{#str}}delete, moodle{{/str}}" data-testid="harpiasurvey-delete-experiment-{{id}}">{{{deleteicon}}}</a>
                                 {{/canmanage}}
                             {{/editingmode}}
                         </td>
@@ -66,8 +66,11 @@
         {{#canmanage}}
             {{#actionurls}}
                 <div class="harpiasurvey-actions mt-3">
-                    <a href="{{createurl}}" class="btn btn-primary">{{createlabel}}</a>
-                    <a href="{{registerurl}}" class="btn btn-secondary ml-2">{{registerlabel}}</a>
+                    <a href="{{createurl}}" class="btn btn-primary" data-testid="harpiasurvey-create-experiment">{{createlabel}}</a>
+                    <a href="{{registerurl}}" class="btn btn-secondary ml-2" data-testid="harpiasurvey-register-model">{{registerlabel}}</a>
+                    {{#has_questionbank}}
+                        <a href="{{questionbankurl}}" class="btn btn-outline-secondary ml-2" data-testid="harpiasurvey-question-bank">{{questionbanklabel}}</a>
+                    {{/has_questionbank}}
                 </div>
             {{/actionurls}}
         {{/canmanage}}

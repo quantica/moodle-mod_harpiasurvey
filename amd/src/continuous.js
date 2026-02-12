@@ -381,6 +381,9 @@ const sendMessage = (cmid, pageid, message, modelid, button, input, loading) => 
                     setTimeout(() => {
                         scrollToBottom(pageid);
                     }, 100);
+                    input.prop('disabled', false);
+                    button.prop('disabled', false);
+                    input.focus();
                 });
             } else {
                 addError('Received response but missing message ID or content');

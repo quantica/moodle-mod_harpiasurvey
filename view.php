@@ -98,5 +98,6 @@ echo $tablehtml;
 
 // Load JavaScript for sortable table (works for both view.php and course page).
 $PAGE->requires->js_call_amd('mod_harpiasurvey/sortable_table', 'init');
+$PAGE->requires->js_call_amd('mod_harpiasurvey/notification_modal', 'init');
 
 echo $OUTPUT->footer();

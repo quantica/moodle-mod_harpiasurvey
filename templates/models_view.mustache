@@ -26,7 +26,7 @@
     {{#editingmode}}
         {{#canmanage}}
             <div class="mb-3">
-                <a href="{{addmodelurl}}" class="btn btn-primary">
+                <a href="{{addmodelurl}}" class="btn btn-primary" data-testid="harpiasurvey-add-model">
                     <i class="fa fa-plus" aria-hidden="true"></i> {{addmodellabel}}
                 </a>
             </div>
@@ -99,10 +99,10 @@
                             <td>
                                 {{#../editingmode}}
                                     {{#../canmanage}}
-                                        <a href="{{editurl}}" class="btn btn-sm btn-primary" title="{{../editlabel}}">
+                                        <a href="{{editurl}}" class="btn btn-sm btn-primary" title="{{../editlabel}}" data-testid="harpiasurvey-edit-model-{{id}}">
                                             <i class="fa fa-edit" aria-hidden="true"></i> {{../editlabel}}
                                         </a>
-                                        <a href="{{deleteurl}}" class="btn btn-sm btn-outline-danger" title="{{../deletelabel}}">
+                                        <a href="{{deleteurl}}" class="btn btn-sm btn-outline-danger" title="{{../deletelabel}}" data-testid="harpiasurvey-delete-model-{{id}}">
                                             <i class="fa fa-trash" aria-hidden="true"></i>
                                         </a>
                                     {{/../canmanage}}

@@ -97,6 +97,8 @@ if ($pageid) {
     $formdata->title = $page->title;
     $formdata->description = $page->description;
     $formdata->descriptionformat = $page->descriptionformat;
+    $formdata->evaluationtitle = $page->evaluationtitle ?? '';
+    $formdata->evaluationdescription = $page->evaluationdescription ?? '';
     $formdata->type = $page->type;
     $formdata->behavior = $page->behavior ?? 'continuous';
     // Set min_turns and max_turns - use empty string instead of null for form compatibility.
@@ -188,6 +190,8 @@ if ($form->is_cancelled()) {
     $pagedata = new stdClass();
     $pagedata->experimentid = $experiment->id;
     $pagedata->title = $data->title;
+    $pagedata->evaluationtitle = trim((string)($data->evaluationtitle ?? ''));
+    $pagedata->evaluationdescription = trim((string)($data->evaluationdescription ?? ''));
     $pagedata->type = $data->type;
     $pagedata->behavior = isset($data->behavior) ? $data->behavior : 'continuous';
     // Handle min_turns and max_turns (only for turns behavior).

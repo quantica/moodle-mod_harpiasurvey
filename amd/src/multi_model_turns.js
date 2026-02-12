@@ -28,6 +28,28 @@ const modelTurns = {};
 export const init = () => initialize();
 
 /**
+ * Ensure one model tab is active (fallback for inconsistent initial markup/bootstrap state).
+ *
+ * @param {Object} container jQuery container
+ */
+const ensureFirstTabActive = (container) => {
+    if (container.find('.nav-link.active').length > 0 && container.find('.tab-pane.active').length > 0) {
+        return;
+    }
+
+    const firstTab = container.find('.nav-link[data-model-id]').first();
+    const firstPane = container.find('.tab-pane[data-model-id]').first();
+    if (firstTab.length === 0 || firstPane.length === 0) {
+        return;
+    }
+
+    container.find('.nav-link[data-model-id]').removeClass('active').attr('aria-selected', 'false');
+    container.find('.tab-pane[data-model-id]').removeClass('show active');
+    firstTab.addClass('active').attr('aria-selected', 'true');
+    firstPane.addClass('show active');
+};
+
+/**
  * Initialize multi-model turns-mode chat containers.
  */
 const initialize = () => {
@@ -61,6 +83,7 @@ const initialize = () => {
 const initMultiModelTurnsPage = (pageid) => {
     const container = $(`.multi-model-chat-container[data-pageid="${pageid}"]`);
     const tabPanes = container.find('.tab-pane[data-model-id]');
+    ensureFirstTabActive(container);
     
     // Initialize turn state for each model
     if (!modelTurns[pageid]) {

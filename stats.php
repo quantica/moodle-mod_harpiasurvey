@@ -835,6 +835,7 @@ echo $tablehtml;
 
 // Load JavaScript for expand/collapse functionality.
 $PAGE->requires->js_call_amd('mod_harpiasurvey/stats_table', 'init');
+$PAGE->requires->js_call_amd('mod_harpiasurvey/notification_modal', 'init');
 
 // Back button.
 $backurl = new moodle_url('/mod/harpiasurvey/view_experiment.php', ['id' => $cm->id, 'experiment' => $experiment->id]);

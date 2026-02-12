@@ -673,7 +673,7 @@ class page_view implements renderable, templatable {
                     $conversationhistory[] = $msgdata;
                     
                     // For multi-model tabs, organize by modelid.
-                    if ($use_multi_model_tabs && !$isqamode && $msg->modelid) {
+                    if ($use_multi_model_tabs && $msg->modelid) {
                         if (!isset($conversationhistory_by_model[$msg->modelid])) {
                             $conversationhistory_by_model[$msg->modelid] = [];
                         }
@@ -711,7 +711,7 @@ class page_view implements renderable, templatable {
             
             // Prepare model tabs data for multi-model interface.
             $model_tabs = [];
-            if ($use_multi_model_tabs && !$isqamode) {
+            if ($use_multi_model_tabs) {
                 // Capture $this in a variable for use in closure.
                 $that = $this;
                 // Helper function to format a question for template.
@@ -864,42 +864,87 @@ class page_view implements renderable, templatable {
                 // Filter questions for each model.
                 foreach ($models as $model) {
                     $modelhistory = $conversationhistory_by_model[$model['id']] ?? [];
+                    $isfirsttab = empty($model_tabs);
+                    $modelqaquestions = [];
+                    $modelqaactiveid = null;
+
+                    if ($isqamode && !empty($modelhistory)) {
+                        foreach ($modelhistory as $msg) {
+                            if (isset($msg['role']->user)) {
+                                $preview = trim(strip_tags($msg['content']));
+                                $preview = html_entity_decode($preview, ENT_QUOTES, 'UTF-8');
+                                if (\core_text::strlen($preview) > 60) {
+                                    $preview = \core_text::substr($preview, 0, 60) . '...';
+                                }
+                                $modelqaquestions[] = [
+                                    'id' => $msg['id'],
+                                    'preview' => $preview,
+                                    'title' => $preview,
+                                    'is_active' => false,
+                                ];
+                                $modelqaactiveid = $msg['id'];
+                            }
+                        }
+                    }
+
+                    if ($modelqaactiveid !== null) {
+                        $lastindex = count($modelqaquestions) - 1;
+                        if ($lastindex >= 0) {
+                            $modelqaquestions[$lastindex]['is_active'] = true;
+                        }
+                    }
                     
                     // Filter questions for this model based on model visibility rules.
                     $modelquestions = [];
-                    foreach ($this->questions as $question) {
-                        if (!$question->enabled) {
-                            continue;
-                        }
-                        
-                        // Check model visibility rules.
-                        $showonlymodel = isset($question->show_only_model) && $question->show_only_model !== null ? (int)$question->show_only_model : null;
-                        $hideonmodel = isset($question->hide_on_model) && $question->hide_on_model !== null ? (int)$question->hide_on_model : null;
-                        
-                        // If show_only_model is set, question only shows for that model.
-                        if ($showonlymodel !== null) {
-                            if ($showonlymodel != $model['id']) {
-                                continue; // Skip this question for this model.
+                    if (!$isqamode) {
+                        foreach ($this->questions as $question) {
+                            if (!$question->enabled) {
+                                continue;
                             }
-                        }
-                        
-                        // If hide_on_model is set, hide question for that model.
-                        if ($hideonmodel !== null) {
-                            if ($hideonmodel == $model['id']) {
-                                continue; // Skip this question for this model.
+
+                            // Check model visibility rules.
+                            $showonlymodel = isset($question->show_only_model) && $question->show_only_model !== null ? (int)$question->show_only_model : null;
+                            $hideonmodel = isset($question->hide_on_model) && $question->hide_on_model !== null ? (int)$question->hide_on_model : null;
+
+                            // If show_only_model is set, question only shows for that model.
+                            if ($showonlymodel !== null) {
+                                if ($showonlymodel != $model['id']) {
+                                    continue; // Skip this question for this model.
+                                }
                             }
+
+                            // If hide_on_model is set, hide question for that model.
+                            if ($hideonmodel !== null) {
+                                if ($hideonmodel == $model['id']) {
+                                    continue; // Skip this question for this model.
+                                }
+                            }
+
+                            // Format and add question.
+                            $modelquestions[] = $formatQuestion($question, $responses, $responsetimestamps);
                         }
-                        
-                        // Format and add question.
-                        $modelquestions[] = $formatQuestion($question, $responses, $responsetimestamps);
                     }
                     
                     $model_tabs[] = [
                         'id' => $model['id'],
+                        'is_first_tab' => $isfirsttab,
                         'name' => $model['name'],
                         'model' => $model['model'],
+                        'evaluation_title' => (trim((string)($this->page->evaluationtitle ?? '')) !== '') ?
+                            format_string(trim((string)$this->page->evaluationtitle)) :
+                            get_string('evaluationtitledefault', 'mod_harpiasurvey'),
+                        'evaluation_description' => (trim((string)($this->page->evaluationdescription ?? '')) !== '') ?
+                            format_text(trim((string)$this->page->evaluationdescription), FORMAT_HTML, [
+                                'context' => $this->context,
+                                'noclean' => false,
+                                'overflowdiv' => true
+                            ]) :
+                            format_string(get_string('evaluationdescriptiondefault', 'mod_harpiasurvey')),
                         'conversation_history' => $modelhistory,
                         'has_history' => !empty($modelhistory),
+                        'qa_questions' => $modelqaquestions,
+                        'has_qa_questions' => !empty($modelqaquestions),
+                        'qa_active_id' => $modelqaactiveid,
                         'questions' => $modelquestions,
                         'has_questions' => !empty($modelquestions),
                         'cmid' => $that->cmid,
@@ -918,7 +963,7 @@ class page_view implements renderable, templatable {
                 'models' => $models,
                 'has_models' => !empty($models),
                 'has_multiple_models' => $has_multiple_models,
-                'use_multi_model_tabs' => ($use_multi_model_tabs && !$isqamode),
+                'use_multi_model_tabs' => $use_multi_model_tabs,
                 'model_tabs' => $model_tabs,
                 'behavior' => $pagebehavior,
                 'is_turns_mode' => $isturnsmode, // Explicit boolean.
@@ -1101,6 +1146,18 @@ class page_view implements renderable, templatable {
 
         $pagetitle = format_string($this->page->title);
         $pagetitle = html_entity_decode($pagetitle, ENT_QUOTES, 'UTF-8');
+        $evaluationtitle = trim((string)($this->page->evaluationtitle ?? ''));
+        $evaluationdescription = trim((string)($this->page->evaluationdescription ?? ''));
+        $evaluationtitle = $evaluationtitle !== '' ? format_string($evaluationtitle) : get_string('evaluationtitledefault', 'mod_harpiasurvey');
+        $evaluationdescriptionhtml = $evaluationdescription !== '' ?
+            format_text($evaluationdescription, FORMAT_HTML, [
+                'context' => $this->context,
+                'noclean' => false,
+                'overflowdiv' => true
+            ]) :
+            format_string(get_string('evaluationdescriptiondefault', 'mod_harpiasurvey'));
+        $aichatdata['evaluation_title'] = $evaluationtitle;
+        $aichatdata['evaluation_description'] = $evaluationdescriptionhtml;
 
         return [
             'title' => $pagetitle,
@@ -1128,6 +1185,8 @@ class page_view implements renderable, templatable {
             'pageid' => $this->pageid,
             'is_aichat_page' => $hasaichat,
             'aichat' => $aichatdata,
+            'evaluation_title' => $evaluationtitle,
+            'evaluation_description' => $evaluationdescriptionhtml,
             'subpages' => $subpageslist,
             'has_subpages' => !empty($subpageslist),
             'initial_turn' => $this->initial_turn,

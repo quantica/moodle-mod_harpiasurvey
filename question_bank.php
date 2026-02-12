@@ -115,5 +115,6 @@ $questionbank = new \mod_harpiasurvey\output\question_bank($questions, $context,
 $renderer = $PAGE->get_renderer('mod_harpiasurvey');
 echo $renderer->render_question_bank($questionbank);
 
-echo $OUTPUT->footer();
+$PAGE->requires->js_call_amd('mod_harpiasurvey/notification_modal', 'init');
 
+echo $OUTPUT->footer();

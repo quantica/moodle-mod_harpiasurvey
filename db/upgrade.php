@@ -589,5 +589,22 @@ function xmldb_harpiasurvey_upgrade($oldversion) {
         upgrade_mod_savepoint(true, 202501280033, 'harpiasurvey');
     }
 
+    if ($oldversion < 202501280034) {
+        // Add evaluation title/description fields to pages.
+        $table = new xmldb_table('harpiasurvey_pages');
+
+        $field = new xmldb_field('evaluationtitle', XMLDB_TYPE_CHAR, '255', null, null, null, null, 'descriptionformat');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $field = new xmldb_field('evaluationdescription', XMLDB_TYPE_TEXT, null, null, null, null, null, 'evaluationtitle');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_mod_savepoint(true, 202501280034, 'harpiasurvey');
+    }
+
     return true;
 }

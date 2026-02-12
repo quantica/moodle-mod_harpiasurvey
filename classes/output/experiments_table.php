@@ -154,6 +154,18 @@ class experiments_table implements renderable, templatable {
                 'registerurl' => $registerurl->out(false),
                 'registerlabel' => get_string('registermodel', 'mod_harpiasurvey'),
             ];
+
+            // Question bank is experiment-scoped. On course page, open it for the first available experiment.
+            if (!empty($experimentslist)) {
+                $firstexperimentid = (int)$experimentslist[0]['id'];
+                $questionbankurl = new \moodle_url('/mod/harpiasurvey/question_bank.php', [
+                    'id' => $this->cmid,
+                    'experiment' => $firstexperimentid
+                ]);
+                $actionurls['questionbankurl'] = $questionbankurl->out(false);
+                $actionurls['questionbanklabel'] = get_string('questionbank', 'mod_harpiasurvey');
+                $actionurls['has_questionbank'] = true;
+            }
         }
 
         return [

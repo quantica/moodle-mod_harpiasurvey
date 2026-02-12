@@ -186,14 +186,26 @@
             
             {{! Turn evaluation questions container (for turns mode) - appears below chat }}
             {{#aichat.is_turns_mode}}
-                <div class="turn-evaluation-questions-container mt-4" id="turn-evaluation-questions-container-{{pageid}}">
-                    {{! Questions will be dynamically loaded here based on current turn }}
+                <div class="evaluation-section mt-4">
+                    <div class="evaluation-section-header mb-3">
+                        <h5 class="mb-1">{{evaluation_title}}</h5>
+                        <div class="text-muted small">{{{evaluation_description}}}</div>
+                    </div>
+                    <div class="turn-evaluation-questions-container" id="turn-evaluation-questions-container-{{pageid}}">
+                        {{! Questions will be dynamically loaded here based on current turn }}
+                    </div>
                 </div>
             {{/aichat.is_turns_mode}}
             {{! Q&A evaluation questions container (per entry) }}
             {{#aichat.is_qa_mode}}
-                <div class="qa-evaluation-questions-container mt-4" id="qa-evaluation-questions-container-{{pageid}}">
-                    {{! Questions will be dynamically loaded here based on selected Q&A entry }}
+                <div class="evaluation-section mt-4">
+                    <div class="evaluation-section-header mb-3">
+                        <h5 class="mb-1">{{evaluation_title}}</h5>
+                        <div class="text-muted small">{{{evaluation_description}}}</div>
+                    </div>
+                    <div class="qa-evaluation-questions-container" id="qa-evaluation-questions-container-{{pageid}}">
+                        {{! Questions will be dynamically loaded here based on selected Q&A entry }}
+                    </div>
                 </div>
             {{/aichat.is_qa_mode}}
             </div>
@@ -203,7 +215,11 @@
     {{/is_aichat_page}}
     
     {{#has_questions}}
-        <div class="page-questions mt-4">
+        <div class="evaluation-section page-questions mt-4">
+            <div class="evaluation-section-header mb-3">
+                <h5 class="mb-1">{{evaluation_title}}</h5>
+                <div class="text-muted small">{{{evaluation_description}}}</div>
+            </div>
             {{#questions}}
                 <div class="question-item mb-4" data-questionid="{{id}}" data-questiontype="{{type}}" data-required="{{required}}">
                     <h5>{{name}}{{#is_required}} <span class="text-danger">*</span>{{/is_required}}</h5>
@@ -214,7 +230,7 @@
                     {{#has_options}}
                         {{#is_select}}
                             {{! Select dropdown }}
-                            <select class="form-control" name="question_{{id}}" id="question_{{id}}" {{#has_saved_response}}data-saved-value="{{saved_response}}"{{/has_saved_response}}>
+                            <select class="form-control" name="question_{{id}}" id="question_{{id}}" data-testid="harpiasurvey-question-{{id}}" {{#has_saved_response}}data-saved-value="{{saved_response}}"{{/has_saved_response}}>
                                 <option value="">{{#str}}noselection, mod_harpiasurvey{{/str}}</option>
                                 {{#options}}
                                     <option value="{{id}}" {{#isdefault}}selected{{/isdefault}}>{{value}}</option>
@@ -255,17 +271,17 @@
                     {{^has_options}}
                         {{#is_number}}
                             {{! Number input with settings }}
-                            <input type="number" class="form-control" name="question_{{id}}" id="question_{{id}}"
+                            <input type="number" class="form-control" name="question_{{id}}" id="question_{{id}}" data-testid="harpiasurvey-question-{{id}}"
                                    {{#numbersettings.has_min}}min="{{numbersettings.min_value}}"{{/numbersettings.has_min}}
                                    {{#numbersettings.has_max}}max="{{numbersettings.max_value}}"{{/numbersettings.has_max}}
                                    {{#numbersettings.step}}step="{{numbersettings.step}}"{{/numbersettings.step}}
                                    {{#has_saved_response}}value="{{saved_response}}"{{/has_saved_response}}{{^has_saved_response}}{{#numbersettings.default}}value="{{numbersettings.default}}"{{/numbersettings.default}}{{/has_saved_response}}>
                         {{/is_number}}
                         {{#is_shorttext}}
-                            <input type="text" class="form-control" name="question_{{id}}" id="question_{{id}}" {{#has_saved_response}}value="{{saved_response}}"{{/has_saved_response}}>
+                            <input type="text" class="form-control" name="question_{{id}}" id="question_{{id}}" data-testid="harpiasurvey-question-{{id}}" {{#has_saved_response}}value="{{saved_response}}"{{/has_saved_response}}>
                         {{/is_shorttext}}
                         {{#is_longtext}}
-                            <textarea class="form-control" name="question_{{id}}" id="question_{{id}}" rows="4">{{#has_saved_response}}{{saved_response}}{{/has_saved_response}}</textarea>
+                            <textarea class="form-control" name="question_{{id}}" id="question_{{id}}" data-testid="harpiasurvey-question-{{id}}" rows="4">{{#has_saved_response}}{{saved_response}}{{/has_saved_response}}</textarea>
                         {{/is_longtext}}
                     {{/has_options}}
                     
@@ -291,9 +307,10 @@
             {{! Single save button at the end of all questions (only show if there are questions) }}
             {{#has_non_aiconversation_questions}}
                 <div class="mt-4 text-center">
-                    <button type="button" class="btn btn-primary btn-lg save-all-responses-btn" 
+                    <button type="button" class="btn btn-primary btn-lg save-all-responses-btn"
                             data-cmid="{{cmid}}"
-                            data-pageid="{{pageid}}">
+                            data-pageid="{{pageid}}"
+                            data-testid="harpiasurvey-save-responses">
                         {{#str}}save, mod_harpiasurvey{{/str}}
                     </button>
                     <div class="mt-2 save-all-status" style="display: none;"></div>
@@ -335,7 +352,7 @@
                                     
                                     {{#has_options}}
                                         {{#is_select}}
-                                            <select class="form-control" name="question_{{id}}" id="question_{{id}}" {{#has_saved_response}}data-saved-value="{{saved_response}}"{{/has_saved_response}}>
+                                            <select class="form-control" name="question_{{id}}" id="question_{{id}}" data-testid="harpiasurvey-question-{{id}}" {{#has_saved_response}}data-saved-value="{{saved_response}}"{{/has_saved_response}}>
                                                 <option value="">{{#str}}noselection, mod_harpiasurvey{{/str}}</option>
                                                 {{#options}}
                                                     <option value="{{id}}" {{#isdefault}}selected{{/isdefault}}>{{value}}</option>
@@ -373,14 +390,14 @@
                                     {{/has_options}}
                                     {{^has_options}}
                                         {{#is_number}}
-                                            <input type="number" class="form-control" name="question_{{id}}" id="question_{{id}}"
+                                            <input type="number" class="form-control" name="question_{{id}}" id="question_{{id}}" data-testid="harpiasurvey-question-{{id}}"
                                                    {{#has_saved_response}}value="{{saved_response}}"{{/has_saved_response}}>
                                         {{/is_number}}
                                         {{#is_shorttext}}
-                                            <input type="text" class="form-control" name="question_{{id}}" id="question_{{id}}" {{#has_saved_response}}value="{{saved_response}}"{{/has_saved_response}}>
+                                            <input type="text" class="form-control" name="question_{{id}}" id="question_{{id}}" data-testid="harpiasurvey-question-{{id}}" {{#has_saved_response}}value="{{saved_response}}"{{/has_saved_response}}>
                                         {{/is_shorttext}}
                                         {{#is_longtext}}
-                                            <textarea class="form-control" name="question_{{id}}" id="question_{{id}}" rows="4">{{#has_saved_response}}{{saved_response}}{{/has_saved_response}}</textarea>
+                                            <textarea class="form-control" name="question_{{id}}" id="question_{{id}}" data-testid="harpiasurvey-question-{{id}}" rows="4">{{#has_saved_response}}{{saved_response}}{{/has_saved_response}}</textarea>
                                         {{/is_longtext}}
                                     {{/has_options}}
                                     

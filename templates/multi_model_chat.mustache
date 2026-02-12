@@ -40,14 +40,14 @@
         <ul class="nav nav-tabs mb-3" id="model-tabs-{{pageid}}" role="tablist">
             {{#aichat.model_tabs}}
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link {{#@first}}active{{/@first}}" 
+                    <button class="nav-link {{#is_first_tab}}active{{/is_first_tab}}" 
                             id="model-tab-{{id}}-{{pageid}}" 
                             data-bs-toggle="tab" 
                             data-bs-target="#model-pane-{{id}}-{{pageid}}" 
                             type="button" 
                             role="tab" 
                             aria-controls="model-pane-{{id}}-{{pageid}}" 
-                            aria-selected="{{#@first}}true{{/@first}}{{^@first}}false{{/@first}}"
+                            aria-selected="{{#is_first_tab}}true{{/is_first_tab}}{{^is_first_tab}}false{{/is_first_tab}}"
                             data-model-id="{{id}}">
                         {{name}}
                         <small class="text-muted">({{model}})</small>
@@ -59,11 +59,12 @@
         {{! Tab content panes }}
         <div class="tab-content" id="model-tab-content-{{pageid}}">
             {{#aichat.model_tabs}}
-                <div class="tab-pane fade {{#@first}}show active{{/@first}}" 
+                <div class="tab-pane fade {{#is_first_tab}}show active{{/is_first_tab}}" 
                      id="model-pane-{{id}}-{{pageid}}" 
                      role="tabpanel" 
                      aria-labelledby="model-tab-{{id}}-{{pageid}}"
-                     data-model-id="{{id}}">
+                     data-model-id="{{id}}"
+                     {{#qa_active_id}}data-qa-active-id="{{qa_active_id}}"{{/qa_active_id}}>
                     {{! Turn navigation controls (only for turns mode) }}
                     {{#aichat.is_turns_mode}}
                         <div class="turn-navigation mb-2 d-flex justify-content-between align-items-center">
@@ -100,10 +101,35 @@
                         {{/has_history}}
                         {{^has_history}}
                             <div class="text-center text-muted py-4">
-                                <p>{{#str}}nomessagesyet, mod_harpiasurvey{{/str}}</p>
+                                <p>
+                                    {{#aichat.is_qa_mode}}
+                                        {{#str}}qaplaceholder, mod_harpiasurvey{{/str}}
+                                    {{/aichat.is_qa_mode}}
+                                    {{^aichat.is_qa_mode}}
+                                        {{#str}}nomessagesyet, mod_harpiasurvey{{/str}}
+                                    {{/aichat.is_qa_mode}}
+                                </p>
                             </div>
                         {{/has_history}}
                     </div>
+
+                    {{! Q&A history list per model }}
+                    {{#aichat.is_qa_mode}}
+                        <div class="qa-questions-list mb-2" data-pageid="{{pageid}}" data-model-id="{{id}}" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 160px; overflow-y: auto;">
+                            {{#has_qa_questions}}
+                                {{#qa_questions}}
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-secondary qa-question-item{{#is_active}} active{{/is_active}}"
+                                            data-pageid="{{pageid}}"
+                                            data-model-id="{{../id}}"
+                                            data-question-id="{{id}}"
+                                            title="{{title}}">
+                                        {{preview}}
+                                    </button>
+                                {{/qa_questions}}
+                            {{/has_qa_questions}}
+                        </div>
+                    {{/aichat.is_qa_mode}}
                     
                     {{! Input area for this specific model tab }}
                     <div class="chat-input-container mt-3">
@@ -124,15 +150,45 @@
                             </button>
                         </div>
                     </div>
+
+                    {{! Q&A new question button per model }}
+                    {{#aichat.is_qa_mode}}
+                        <div class="mt-2 d-flex justify-content-end">
+                            <button type="button" class="btn btn-outline-secondary btn-sm new-question-btn"
+                                    data-pageid="{{pageid}}"
+                                    data-model-id="{{id}}">
+                                {{#str}}newquestion, mod_harpiasurvey{{/str}}
+                            </button>
+                        </div>
+                    {{/aichat.is_qa_mode}}
                     
                     {{! Loading indicator for this model }}
                     <div class="chat-loading mt-2" id="chat-loading-model-{{id}}-{{pageid}}" style="display: none;">
                         {{> mod_harpiasurvey/chat_loading }}
                     </div>
+
+                    {{! Q&A evaluation questions container (per entry, per model) }}
+                    {{#aichat.is_qa_mode}}
+                        <div class="evaluation-section mt-4">
+                            <div class="evaluation-section-header mb-3">
+                                <h5 class="mb-1">{{evaluation_title}}</h5>
+                                <div class="text-muted small">{{{evaluation_description}}}</div>
+                            </div>
+                            <div class="qa-evaluation-questions-container"
+                                 id="qa-evaluation-questions-container-model-{{id}}-{{pageid}}">
+                                {{! Questions will be dynamically loaded here based on selected Q&A entry }}
+                            </div>
+                        </div>
+                    {{/aichat.is_qa_mode}}
                     
                     {{! Questions for this model tab }}
+                    {{^aichat.is_qa_mode}}
                     {{#has_questions}}
-                        <div class="page-questions mt-4">
+                        <div class="evaluation-section page-questions mt-4">
+                            <div class="evaluation-section-header mb-3">
+                                <h5 class="mb-1">{{evaluation_title}}</h5>
+                                <div class="text-muted small">{{{evaluation_description}}}</div>
+                            </div>
                             {{#questions}}
                                 <div class="question-item mb-4" data-questionid="{{id}}" data-questiontype="{{type}}" data-required="{{required}}">
                                     <h5>{{name}}{{#is_required}} <span class="text-danger">*</span>{{/is_required}}</h5>
@@ -230,6 +286,7 @@
                             {{/has_questions}}
                         </div>
                     {{/has_questions}}
+                    {{/aichat.is_qa_mode}}
                 </div>
             {{/aichat.model_tabs}}
         </div>

@@ -357,4 +357,6 @@ $experimentview = new \mod_harpiasurvey\output\experiment_view(
 $renderer = $PAGE->get_renderer('mod_harpiasurvey');
 echo $renderer->render_experiment_view($experimentview);
 
+$PAGE->requires->js_call_amd('mod_harpiasurvey/notification_modal', 'init');
+
 echo $OUTPUT->footer();

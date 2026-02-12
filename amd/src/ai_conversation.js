@@ -14,6 +14,16 @@ export const init = () => {
         });
         return; // Early return to avoid checking other containers
     }
+
+    // Check for multi-model Q&A mode
+    const multiModelQaContainers = $('.multi-model-chat-container[data-behavior="qa"]');
+    if (multiModelQaContainers.length > 0) {
+        // eslint-disable-next-line no-undef
+        require(['mod_harpiasurvey/multi_model_qa'], (module) => {
+            module.init();
+        });
+        return; // Early return to avoid checking other containers
+    }
     
     // Check for multi-model continuous mode
     const multiModelContainers = $('.multi-model-chat-container[data-behavior="continuous"]');
@@ -94,6 +104,16 @@ export const initMultiModelTurns = () => {
     return new Promise((resolve) => {
         // eslint-disable-next-line no-undef
         require(['mod_harpiasurvey/multi_model_turns'], (module) => {
+            module.init();
+            resolve();
+        });
+    });
+};
+
+export const initMultiModelQa = () => {
+    return new Promise((resolve) => {
+        // eslint-disable-next-line no-undef
+        require(['mod_harpiasurvey/multi_model_qa'], (module) => {
             module.init();
             resolve();
         });

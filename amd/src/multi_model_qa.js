@@ -1,11 +1,10 @@
-// Q&A-only logic for harpiasurvey chat (single question/answer).
+// Q&A logic for multi-model tabs.
 import {
     Templates,
     Notification,
     Config,
     getString,
     $,
-    scrollToBottom,
     addError
 } from './common_chat';
 
@@ -37,6 +36,8 @@ const ensureEditButton = (questionItem) => {
 
 export const init = () => initialize();
 
+const stateKey = (pageid, modelid) => `${pageid}_${modelid}`;
+
 const initialize = () => {
     if (initialized) {
         return;
@@ -46,24 +47,37 @@ const initialize = () => {
     }).catch(() => {
         editLabel = 'Edit';
     });
-    const containers = $('.ai-conversation-container[data-behavior="qa"]');
+
+    const containers = $('.multi-model-chat-container[data-behavior="qa"]');
     if (containers.length === 0) {
         return;
     }
+
     containers.each(function() {
         const pageid = parseInt($(this).data('pageid'), 10);
         if (!pageid) {
             return;
         }
-        const activeId = parseInt($(this).data('qa-active-id'), 10);
-        const messagesContainer = $(`#chat-messages-page-${pageid}`);
-        if (messagesContainer.find('.message[data-role="assistant"]').length > 0) {
-            lockQaInput(pageid);
-        }
-        if (activeId) {
-            selectQaQuestion(pageid, activeId);
-        }
+
+        $(this).find('.tab-pane[data-model-id]').each(function() {
+            const pane = $(this);
+            const modelid = parseInt(pane.data('model-id'), 10);
+            if (!modelid) {
+                return;
+            }
+
+            const messagesContainer = $(`#chat-messages-model-${modelid}-${pageid}`);
+            if (messagesContainer.find('.message[data-role="assistant"]').length > 0) {
+                lockQaInput(pageid, modelid);
+            }
+
+            const activeId = parseInt(pane.data('qa-active-id'), 10);
+            if (activeId) {
+                selectQaQuestion(pageid, modelid, activeId);
+            }
+        });
     });
+
     registerHandlers();
     initialized = true;
 };
@@ -73,16 +87,19 @@ function registerHandlers() {
         return;
     }
 
-    $(document).on('click', '.ai-conversation-container[data-behavior="qa"] .chat-send-btn', function(e) {
+    $(document).on('click', '.multi-model-chat-container[data-behavior="qa"] .chat-send-btn', function(e) {
         e.preventDefault();
         const button = $(this);
         const cmid = parseInt(button.data('cmid'), 10);
         const pageid = parseInt(button.data('pageid'), 10);
-        if (!cmid || !pageid) {
-            addError('Missing cmid or pageid');
+        const modelid = parseInt(button.data('model-id') || button.data('modelId'), 10);
+
+        if (!cmid || !pageid || !modelid) {
+            addError('Missing cmid, pageid or modelid');
             return;
         }
-        if (hasUnsavedQaEvaluation(pageid)) {
+
+        if (hasUnsavedQaEvaluation(pageid, modelid)) {
             getString('qarequiresave', 'mod_harpiasurvey').then((message) => {
                 Notification.addNotification({
                     message: message,
@@ -96,58 +113,56 @@ function registerHandlers() {
             });
             return;
         }
-        const input = $(`#chat-input-page-${pageid}`);
+
+        const input = $(`#chat-input-model-${modelid}-${pageid}`);
         if (input.length === 0) {
             addError('Chat input not found');
             return;
         }
+
         const inputValue = input.val();
         if (!inputValue) {
             return;
         }
+
         const message = inputValue.trim();
         if (!message) {
             return;
         }
-        const container = button.closest('.ai-conversation-container');
-        const modelsdata = container.data('models');
-        let modelid = null;
-        if (modelsdata) {
-            const modelids = modelsdata.split(',');
-            if (modelids.length > 0) {
-                modelid = parseInt(modelids[0], 10);
-            }
-        }
-        if (!modelid) {
-            addError('No model available');
-            return;
-        }
+
         input.prop('disabled', true);
         button.prop('disabled', true);
         input.val('');
+
         const tempId = 'temp-user-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-        displayUserMessage(pageid, message, tempId);
-        addQaQuestionItem(pageid, tempId, message);
-        selectQaQuestion(pageid, tempId);
-        const loading = $(`#chat-loading-page-${pageid}`);
+        displayUserMessage(pageid, modelid, message, tempId);
+        addQaQuestionItem(pageid, modelid, tempId, message);
+        selectQaQuestion(pageid, modelid, tempId);
+
+        const loading = $(`#chat-loading-model-${modelid}-${pageid}`);
         loading.show();
-        sendMessage(cmid, pageid, message, modelid, button, input, loading);
+        sendMessage(cmid, pageid, modelid, message, button, input, loading);
     });
 
-    $(document).on('keydown', '.ai-conversation-container[data-behavior="qa"] .chat-input', function(e) {
+    $(document).on('keydown', '.multi-model-chat-container[data-behavior="qa"] .chat-input', function(e) {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            $(this).closest('.ai-conversation-container').find('.chat-send-btn').click();
+            const input = $(this);
+            const pageid = parseInt(input.data('pageid'), 10);
+            const modelid = parseInt(input.data('model-id') || input.data('modelId'), 10);
+            $(`#send-message-btn-model-${modelid}-${pageid}`).click();
         }
     });
 
-    $(document).on('click', '.ai-conversation-container[data-behavior="qa"] .new-question-btn', function(e) {
+    $(document).on('click', '.multi-model-chat-container[data-behavior="qa"] .new-question-btn', function(e) {
         e.preventDefault();
         const pageid = parseInt($(this).data('pageid'), 10);
-        if (!pageid) {
+        const modelid = parseInt($(this).data('model-id') || $(this).data('modelId'), 10);
+        if (!pageid || !modelid) {
             return;
         }
-        if (hasUnsavedQaEvaluation(pageid)) {
+
+        if (hasUnsavedQaEvaluation(pageid, modelid)) {
             getString('qarequiresave', 'mod_harpiasurvey').then((message) => {
                 Notification.addNotification({
                     message: message,
@@ -161,38 +176,45 @@ function registerHandlers() {
             });
             return;
         }
-        resetQaView(pageid);
+
+        resetQaView(pageid, modelid);
     });
 
-    $(document).on('click', '.qa-question-item', function(e) {
+    $(document).on('click', '.multi-model-chat-container[data-behavior="qa"] .qa-question-item', function(e) {
         e.preventDefault();
         const button = $(this);
         const pageid = parseInt(button.data('pageid'), 10);
+        const modelid = parseInt(button.data('model-id') || button.data('modelId'), 10);
         const questionId = button.data('question-id');
-        if (!pageid || !questionId) {
+        if (!pageid || !modelid || !questionId) {
             return;
         }
-        selectQaQuestion(pageid, questionId);
+        selectQaQuestion(pageid, modelid, questionId);
     });
 
-    $(document).on('click', '.qa-evaluation-questions-container .save-turn-evaluation-questions-btn', function(e) {
+    $(document).on('click', '.multi-model-chat-container[data-behavior="qa"] .qa-evaluation-questions-container .save-turn-evaluation-questions-btn', function(e) {
         e.preventDefault();
         e.stopPropagation();
+
         const button = $(this);
         const turnId = parseInt(button.data('turn-id'), 10);
         const pageid = parseInt(button.data('pageid'), 10);
         const cmid = parseInt(button.data('cmid'), 10);
-        if (!turnId || !pageid || !cmid) {
+        const modelid = parseInt(button.closest('.tab-pane[data-model-id]').data('model-id'), 10);
+
+        if (!turnId || !pageid || !cmid || !modelid) {
             Notification.addNotification({
                 message: 'Missing required data to save responses.',
                 type: 'error'
             });
             return;
         }
+
         const evaluationContainer = button.closest('.turn-evaluation-questions');
         if (evaluationContainer.length === 0) {
             return;
         }
+
         const responses = {};
         evaluationContainer.find('[data-questionid]').each(function() {
             const item = $(this);
@@ -204,6 +226,7 @@ function registerHandlers() {
             const questionId = $(this).data('questionid');
             const questionType = $(this).data('questiontype');
             let responseValue = null;
+
             if (questionType === 'multiplechoice') {
                 const checked = evaluationContainer.find(`input[name="question_${questionId}_turn[]"]:checked`);
                 const values = [];
@@ -223,6 +246,7 @@ function registerHandlers() {
                 const textarea = evaluationContainer.find(`textarea[name="question_${questionId}_turn"]`);
                 responseValue = textarea.length > 0 ? textarea.val() : null;
             }
+
             if (responseValue !== null && responseValue !== '') {
                 responses[questionId] = responseValue;
             }
@@ -239,17 +263,18 @@ function registerHandlers() {
         const originalText = button.text();
         button.prop('disabled', true);
         button.text('Saving...');
-        saveQaEvaluationResponses(cmid, pageid, turnId, responses, button, originalText);
+        saveQaEvaluationResponses(cmid, pageid, modelid, turnId, responses, button, originalText);
     });
 
     handlersRegistered = true;
 }
 
-const resetQaView = (pageid) => {
-    const messagesContainer = $(`#chat-messages-page-${pageid}`);
+const resetQaView = (pageid, modelid) => {
+    const messagesContainer = $(`#chat-messages-model-${modelid}-${pageid}`);
     if (messagesContainer.length === 0) {
         return;
     }
+
     messagesContainer.find('.message').hide();
     const placeholder = messagesContainer.find('.qa-placeholder');
     if (placeholder.length > 0) {
@@ -261,27 +286,26 @@ const resetQaView = (pageid) => {
             messagesContainer.append('<div class="qa-placeholder text-muted text-center small py-3">Ask a new question to get an answer.</div>');
         });
     }
-    const input = $(`#chat-input-page-${pageid}`);
+
+    const input = $(`#chat-input-model-${modelid}-${pageid}`);
     if (input.length > 0) {
         input.val('');
         input.prop('disabled', false);
-        const container = $(`.ai-conversation-container[data-pageid="${pageid}"]`);
-        const inputGroup = container.find('.input-group');
-        if (inputGroup.length > 0) {
-            inputGroup.show();
-        }
-        const sendButton = container.find('.chat-send-btn');
+        const pane = $(`#model-pane-${modelid}-${pageid}`);
+        pane.find('.input-group').show();
+        const sendButton = $(`#send-message-btn-model-${modelid}-${pageid}`);
         sendButton.prop('disabled', false);
-        container.find('.qa-question-item').removeClass('active');
+        pane.find('.qa-question-item').removeClass('active');
         input.focus();
     }
-    const evalContainer = $(`#qa-evaluation-questions-container-${pageid}`);
+
+    const evalContainer = $(`#qa-evaluation-questions-container-model-${modelid}-${pageid}`);
     if (evalContainer.length > 0) {
         evalContainer.empty();
     }
 };
 
-const sendMessage = (cmid, pageid, message, modelid, button, input, loading) => {
+const sendMessage = (cmid, pageid, modelid, message, button, input, loading) => {
     const params = new URLSearchParams({
         action: 'send_ai_message',
         cmid: cmid,
@@ -309,17 +333,16 @@ const sendMessage = (cmid, pageid, message, modelid, button, input, loading) => 
             if (data.messageid && data.content) {
                 const parentid = data.parentid || null;
                 if (parentid) {
-                    const pendingUser = $(`#chat-messages-page-${pageid} .message[data-role="user"]`).last();
+                    const pendingUser = $(`#chat-messages-model-${modelid}-${pageid} .message[data-role="user"]`).last();
                     if (pendingUser.length > 0) {
                         pendingUser.attr('data-messageid', parentid);
                     }
-                    updateQaQuestionItemId(pageid, parentid);
+                    updateQaQuestionItemId(pageid, modelid, parentid);
                 }
-                displayAIMessage(pageid, data.content, data.messageid, parentid).then(() => {
-                    scrollToBottom(pageid);
-                    lockQaInput(pageid);
+                displayAIMessage(pageid, modelid, data.content, data.messageid, parentid).then(() => {
+                    lockQaInput(pageid, modelid);
                     if (parentid) {
-                        selectQaQuestion(pageid, parentid);
+                        selectQaQuestion(pageid, modelid, parentid);
                     }
                 });
             } else {
@@ -328,6 +351,7 @@ const sendMessage = (cmid, pageid, message, modelid, button, input, loading) => 
         } else {
             addError(data.message || 'Error sending message');
         }
+
         input.prop('disabled', false);
         button.prop('disabled', false);
         input.focus();
@@ -343,24 +367,25 @@ const sendMessage = (cmid, pageid, message, modelid, button, input, loading) => 
     });
 };
 
-const displayUserMessage = (pageid, message, messageid) => {
-    const messagesContainer = $(`#chat-messages-page-${pageid}`);
+const displayUserMessage = (pageid, modelid, message, messageid) => {
+    const messagesContainer = $(`#chat-messages-model-${modelid}-${pageid}`);
     if (messagesContainer.length === 0) {
         return;
     }
     messagesContainer.find('.text-center.text-muted').remove();
+    messagesContainer.find('.qa-placeholder').remove();
     Templates.render('mod_harpiasurvey/chat_user_message', {
         id: messageid,
         content: message,
         timecreated: Math.floor(Date.now() / 1000)
     }).then((html) => {
         messagesContainer.append(html);
-        scrollToBottom(pageid);
+        scrollToBottom(pageid, modelid);
     }).catch(Notification.exception);
 };
 
-const displayAIMessage = (pageid, content, messageid, parentid = null) => {
-    const messagesContainer = $(`#chat-messages-page-${pageid}`);
+const displayAIMessage = (pageid, modelid, content, messageid, parentid = null) => {
+    const messagesContainer = $(`#chat-messages-model-${modelid}-${pageid}`);
     if (messagesContainer.length === 0) {
         return Promise.resolve();
     }
@@ -371,36 +396,40 @@ const displayAIMessage = (pageid, content, messageid, parentid = null) => {
         timecreated: Math.floor(Date.now() / 1000)
     }).then((html) => {
         messagesContainer.append(html);
-        scrollToBottom(pageid);
+        scrollToBottom(pageid, modelid);
         return html;
     }).catch(Notification.exception);
 };
 
-const selectQaQuestion = (pageid, questionId) => {
-    const messagesContainer = $(`#chat-messages-page-${pageid}`);
+const selectQaQuestion = (pageid, modelid, questionId) => {
+    const messagesContainer = $(`#chat-messages-model-${modelid}-${pageid}`);
     if (messagesContainer.length === 0) {
         return;
     }
-    const container = $(`.ai-conversation-container[data-pageid="${pageid}"]`);
-    container.attr('data-qa-active-id', questionId);
-    container.data('qa-active-id', questionId);
+
+    const pane = $(`#model-pane-${modelid}-${pageid}`);
+    pane.attr('data-qa-active-id', questionId);
+    pane.data('qa-active-id', questionId);
+
     messagesContainer.find('.qa-placeholder').hide();
     messagesContainer.find('.message').hide();
     messagesContainer.find(`.message[data-messageid="${questionId}"], .message[data-parentid="${questionId}"]`).show();
-    const list = $(`.qa-questions-list[data-pageid="${pageid}"]`);
+
+    const list = $(`.qa-questions-list[data-pageid="${pageid}"][data-model-id="${modelid}"]`);
     list.find('.qa-question-item').removeClass('active');
     list.find(`.qa-question-item[data-question-id="${questionId}"]`).addClass('active');
-    lockQaInput(pageid);
+
+    lockQaInput(pageid, modelid);
     const evalId = parseInt(questionId, 10);
     if (!isNaN(evalId)) {
-        renderQaEvaluationQuestions(pageid, evalId).then(() => {
-            loadQaEvaluationResponses(pageid, evalId);
+        renderQaEvaluationQuestions(pageid, modelid, evalId).then(() => {
+            loadQaEvaluationResponses(pageid, modelid, evalId);
         });
     }
 };
 
-const addQaQuestionItem = (pageid, questionId, message) => {
-    const list = $(`.qa-questions-list[data-pageid="${pageid}"]`);
+const addQaQuestionItem = (pageid, modelid, questionId, message) => {
+    const list = $(`.qa-questions-list[data-pageid="${pageid}"][data-model-id="${modelid}"]`);
     if (list.length === 0) {
         return;
     }
@@ -410,6 +439,7 @@ const addQaQuestionItem = (pageid, questionId, message) => {
         type: 'button',
         class: 'btn btn-sm btn-outline-secondary qa-question-item',
         'data-pageid': pageid,
+        'data-model-id': modelid,
         'data-question-id': questionId,
         title: label,
         text: label
@@ -420,50 +450,50 @@ const addQaQuestionItem = (pageid, questionId, message) => {
     }
 };
 
-const updateQaQuestionItemId = (pageid, newId) => {
-    const list = $(`.qa-questions-list[data-pageid="${pageid}"]`);
+const updateQaQuestionItemId = (pageid, modelid, newId) => {
+    const list = $(`.qa-questions-list[data-pageid="${pageid}"][data-model-id="${modelid}"]`);
     const lastItem = list.find('.qa-question-item').last();
     if (lastItem.length > 0) {
         lastItem.attr('data-question-id', newId);
     }
 };
 
-const lockQaInput = (pageid) => {
-    const container = $(`.ai-conversation-container[data-pageid="${pageid}"]`);
-    const inputGroup = container.find('.input-group');
+const lockQaInput = (pageid, modelid) => {
+    const pane = $(`#model-pane-${modelid}-${pageid}`);
+    const inputGroup = pane.find('.input-group');
     if (inputGroup.length > 0) {
         inputGroup.hide();
     }
-    const input = $(`#chat-input-page-${pageid}`);
-    const sendButton = container.find('.chat-send-btn');
+    const input = $(`#chat-input-model-${modelid}-${pageid}`);
+    const sendButton = $(`#send-message-btn-model-${modelid}-${pageid}`);
     input.prop('disabled', true);
     sendButton.prop('disabled', true);
 };
 
-const hasUnsavedQaEvaluation = (pageid) => {
-    const qaContainer = $(`.ai-conversation-container[data-pageid="${pageid}"]`);
-    const activeId = qaContainer.data('qa-active-id');
+const hasUnsavedQaEvaluation = (pageid, modelid) => {
+    const key = stateKey(pageid, modelid);
+    const pane = $(`#model-pane-${modelid}-${pageid}`);
+    const activeId = pane.data('qa-active-id');
     if (!activeId) {
         return false;
     }
-    if (!qaEvaluationSaved[pageid]) {
-        qaEvaluationSaved[pageid] = {};
+    if (!qaEvaluationSaved[key]) {
+        qaEvaluationSaved[key] = {};
     }
-    if (qaEvaluationSaved[pageid][activeId] === true) {
+    if (qaEvaluationSaved[key][activeId] === true) {
         return false;
     }
-    const container = $(`#qa-evaluation-questions-container-${pageid}`);
+    const container = $(`#qa-evaluation-questions-container-model-${modelid}-${pageid}`);
     if (container.length === 0) {
         return false;
     }
     const requiredQuestions = container.find('.question-item[data-required="1"]');
     if (requiredQuestions.length === 0) {
-        qaEvaluationSaved[pageid][activeId] = true;
+        qaEvaluationSaved[key][activeId] = true;
         return false;
     }
-    const requiredSet = requiredQuestions;
     let missing = false;
-    requiredSet.each(function() {
+    requiredQuestions.each(function() {
         const item = $(this);
         if (item.find('.saved-response-message').length === 0) {
             missing = true;
@@ -471,28 +501,33 @@ const hasUnsavedQaEvaluation = (pageid) => {
         }
         return undefined;
     });
-    qaEvaluationSaved[pageid][activeId] = !missing;
+    qaEvaluationSaved[key][activeId] = !missing;
     return missing;
 };
 
-const renderQaEvaluationQuestions = (pageid, questionId) => {
-    const containerWrapper = $(`#qa-evaluation-questions-container-${pageid}`);
+const renderQaEvaluationQuestions = (pageid, modelid, questionId) => {
+    const containerWrapper = $(`#qa-evaluation-questions-container-model-${modelid}-${pageid}`);
     if (containerWrapper.length === 0) {
         return Promise.resolve();
     }
-    if (!qaEvaluationSaved[pageid]) {
-        qaEvaluationSaved[pageid] = {};
+
+    const key = stateKey(pageid, modelid);
+    if (!qaEvaluationSaved[key]) {
+        qaEvaluationSaved[key] = {};
     }
-    qaEvaluationSaved[pageid][questionId] = false;
+    qaEvaluationSaved[key][questionId] = false;
+
     return getString('loading', 'moodle').then((loadingStr) => {
         containerWrapper.html('<div class="text-center py-3 text-muted"><i class="fa fa-spinner fa-spin"></i> ' +
             loadingStr + '</div>');
 
+        const container = $(`.multi-model-chat-container[data-pageid="${pageid}"]`);
+        const cmid = parseInt(container.data('cmid') || container.attr('data-cmid'), 10);
         const params = new URLSearchParams({
             action: 'get_turn_questions',
             pageid: pageid,
             turn_id: questionId,
-            cmid: $(`#chat-messages-page-${pageid}`).closest('.ai-conversation-container').data('cmid'),
+            cmid: cmid,
             sesskey: Config.sesskey
         });
 
@@ -525,8 +560,8 @@ const renderQaEvaluationQuestions = (pageid, questionId) => {
     });
 };
 
-const loadQaEvaluationResponses = (pageid, questionId) => {
-    const containerWrapper = $(`#qa-evaluation-questions-container-${pageid}`);
+const loadQaEvaluationResponses = (pageid, modelid, questionId) => {
+    const containerWrapper = $(`#qa-evaluation-questions-container-model-${modelid}-${pageid}`);
     if (containerWrapper.length === 0) {
         return;
     }
@@ -535,9 +570,11 @@ const loadQaEvaluationResponses = (pageid, questionId) => {
         container = containerWrapper;
     }
 
+    const chatContainer = $(`.multi-model-chat-container[data-pageid="${pageid}"]`);
+    const cmid = parseInt(chatContainer.data('cmid') || chatContainer.attr('data-cmid'), 10);
     const params = new URLSearchParams({
         action: 'get_turn_responses',
-        cmid: $(`#chat-messages-page-${pageid}`).closest('.ai-conversation-container').data('cmid'),
+        cmid: cmid,
         pageid: pageid,
         turn_id: questionId,
         sesskey: Config.sesskey
@@ -559,9 +596,9 @@ const loadQaEvaluationResponses = (pageid, questionId) => {
         if (!data.success || !data.responses) {
             return;
         }
-        Object.keys(data.responses).forEach((questionId) => {
-            const responseData = data.responses[questionId];
-            const questionItem = container.find(`.question-item[data-questionid="${questionId}"]`);
+        Object.keys(data.responses).forEach((qid) => {
+            const responseData = data.responses[qid];
+            const questionItem = container.find(`.question-item[data-questionid="${qid}"]`);
             if (questionItem.length === 0) {
                 return;
             }
@@ -635,20 +672,21 @@ const loadQaEvaluationResponses = (pageid, questionId) => {
                 }
             });
         });
-        if (!qaEvaluationSaved[pageid]) {
-            qaEvaluationSaved[pageid] = {};
+
+        const key = stateKey(pageid, modelid);
+        if (!qaEvaluationSaved[key]) {
+            qaEvaluationSaved[key] = {};
         }
         const requiredQuestions = container.find('.question-item[data-required="1"]');
         if (requiredQuestions.length === 0) {
-            qaEvaluationSaved[pageid][questionId] = true;
+            qaEvaluationSaved[key][questionId] = true;
             return;
         }
-        const requiredSet = requiredQuestions;
-        const requiredCount = requiredSet.length;
-        const savedRequired = requiredSet.filter(function() {
+        const requiredCount = requiredQuestions.length;
+        const savedRequired = requiredQuestions.filter(function() {
             return $(this).find('.saved-response-message').length > 0;
         }).length;
-        qaEvaluationSaved[pageid][questionId] = (requiredCount > 0 && savedRequired === requiredCount);
+        qaEvaluationSaved[key][questionId] = (requiredCount > 0 && savedRequired === requiredCount);
     })
     .catch((error) => {
         // eslint-disable-next-line no-console
@@ -656,7 +694,7 @@ const loadQaEvaluationResponses = (pageid, questionId) => {
     });
 };
 
-const saveQaEvaluationResponses = (cmid, pageid, questionId, responses, button, originalText) => {
+const saveQaEvaluationResponses = (cmid, pageid, modelid, questionId, responses, button, originalText) => {
     const entries = Object.entries(responses);
     let failedCount = 0;
 
@@ -705,10 +743,18 @@ const saveQaEvaluationResponses = (cmid, pageid, questionId, responses, button, 
                 type: 'warning'
             });
         }
-        if (!qaEvaluationSaved[pageid]) {
-            qaEvaluationSaved[pageid] = {};
+        const key = stateKey(pageid, modelid);
+        if (!qaEvaluationSaved[key]) {
+            qaEvaluationSaved[key] = {};
         }
-        qaEvaluationSaved[pageid][questionId] = false;
-        loadQaEvaluationResponses(pageid, questionId);
+        qaEvaluationSaved[key][questionId] = false;
+        loadQaEvaluationResponses(pageid, modelid, questionId);
     });
+};
+
+const scrollToBottom = (pageid, modelid) => {
+    const messagesContainer = $(`#chat-messages-model-${modelid}-${pageid}`);
+    if (messagesContainer.length > 0) {
+        messagesContainer.scrollTop(messagesContainer[0].scrollHeight);
+    }
 };

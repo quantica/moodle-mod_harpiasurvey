@@ -130,6 +130,22 @@ class page extends \moodleform {
             $mform->setDefault('description_editor', $editordata->description_editor);
         }
 
+        // Evaluation section copy (shown above evaluation questions).
+        $mform->addElement('text', 'evaluationtitle', get_string('evaluationtitle', 'mod_harpiasurvey'), ['size' => '64']);
+        $mform->setType('evaluationtitle', PARAM_TEXT);
+        $mform->addHelpButton('evaluationtitle', 'evaluationtitle', 'mod_harpiasurvey');
+        if (isset($this->_customdata->evaluationtitle)) {
+            $mform->setDefault('evaluationtitle', $this->_customdata->evaluationtitle);
+        }
+
+        $mform->addElement('textarea', 'evaluationdescription', get_string('evaluationdescription', 'mod_harpiasurvey'),
+            ['rows' => 3, 'cols' => 60]);
+        $mform->setType('evaluationdescription', PARAM_TEXT);
+        $mform->addHelpButton('evaluationdescription', 'evaluationdescription', 'mod_harpiasurvey');
+        if (isset($this->_customdata->evaluationdescription)) {
+            $mform->setDefault('evaluationdescription', $this->_customdata->evaluationdescription);
+        }
+
         // Type dropdown.
         $typeoptions = [
             'opening' => get_string('typegeneral', 'mod_harpiasurvey'),
@@ -145,6 +161,9 @@ class page extends \moodleform {
         } else {
             $mform->setDefault('type', 'opening');
         }
+        // Only show evaluation copy fields for AI evaluation pages.
+        $mform->hideIf('evaluationtitle', 'type', 'neq', 'aichat');
+        $mform->hideIf('evaluationdescription', 'type', 'neq', 'aichat');
         
         // Behavior dropdown (only for aichat pages).
         $behavioroptions = [
@@ -188,8 +207,22 @@ class page extends \moodleform {
         // Model selection (only for aichat pages).
         global $DB;
         $harpiasurveyid = isset($this->_customdata->harpiasurveyid) ? $this->_customdata->harpiasurveyid : 0;
-        if ($harpiasurveyid) {
-            $models = $DB->get_records('harpiasurvey_models', ['harpiasurveyid' => $harpiasurveyid, 'enabled' => 1], 'name ASC');
+        $experimentid = isset($this->_customdata->experimentid) ? $this->_customdata->experimentid : 0;
+        if ($harpiasurveyid && $experimentid) {
+            // Limit available page models to those linked to this experiment.
+            $models = $DB->get_records_sql(
+                "SELECT m.*
+                   FROM {harpiasurvey_models} m
+                   JOIN {harpiasurvey_experiment_models} em ON em.modelid = m.id
+                  WHERE em.experimentid = :experimentid
+                    AND m.harpiasurveyid = :harpiasurveyid
+                    AND m.enabled = 1
+                  ORDER BY m.name ASC",
+                [
+                    'experimentid' => $experimentid,
+                    'harpiasurveyid' => $harpiasurveyid
+                ]
+            );
             $modeloptions = [];
             foreach ($models as $model) {
                 $modeloptions[$model->id] = $model->name . ' (' . $model->model . ')';

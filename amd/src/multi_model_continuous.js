@@ -15,6 +15,28 @@ let treeHandlersRegistered = false;
 export const init = () => initialize();
 
 /**
+ * Ensure one model tab is active (fallback for inconsistent initial markup/bootstrap state).
+ *
+ * @param {Object} container jQuery container
+ */
+const ensureFirstTabActive = (container) => {
+    if (container.find('.nav-link.active').length > 0 && container.find('.tab-pane.active').length > 0) {
+        return;
+    }
+
+    const firstTab = container.find('.nav-link[data-model-id]').first();
+    const firstPane = container.find('.tab-pane[data-model-id]').first();
+    if (firstTab.length === 0 || firstPane.length === 0) {
+        return;
+    }
+
+    container.find('.nav-link[data-model-id]').removeClass('active').attr('aria-selected', 'false');
+    container.find('.tab-pane[data-model-id]').removeClass('show active');
+    firstTab.addClass('active').attr('aria-selected', 'true');
+    firstPane.addClass('show active');
+};
+
+/**
  * Initialize multi-model continuous-mode chat containers.
  */
 const initialize = () => {
@@ -47,6 +69,7 @@ const initialize = () => {
 const initMultiModelPage = (pageid) => {
     // Initialize each model tab's conversation state
     const container = $(`.multi-model-chat-container[data-pageid="${pageid}"]`);
+    ensureFirstTabActive(container);
     const tabPanes = container.find('.tab-pane[data-model-id]');
 
     // Build a global parent map from ALL messages across ALL models
@@ -92,8 +115,9 @@ const initMultiModelPage = (pageid) => {
                 if (found) {
                     // Store model-specific conversation
                     container.data(`viewing-conversation-${modelId}`, rootId);
-                    // Set shared conversation root (use the first one found, or the most recent)
-                    if (!sharedRootId || rootId > sharedRootId) {
+                    // Set shared conversation root only once (first discovered),
+                    // so initial selection is stable and does not jump to the newest conversation.
+                    if (!sharedRootId) {
                         sharedRootId = rootId;
                     }
                 }
@@ -120,7 +144,16 @@ const initMultiModelPage = (pageid) => {
     const sidebar = $(`#conversation-tree-sidebar-${pageid}`);
     if (sidebar.length > 0) {
         sidebar.show();
-        loadConversationTreeForMultiModel(pageid);
+        loadConversationTreeForMultiModel(pageid).then(() => {
+            const selectedConversation = container.data('viewing-conversation') ||
+                parseInt(container.attr('data-viewing-conversation'), 10);
+            if (selectedConversation) {
+                tabPanes.each(function() {
+                    const modelId = parseInt($(this).data('model-id'), 10);
+                    filterMessagesByConversationForModel(pageid, modelId, selectedConversation);
+                });
+            }
+        });
     }
 };
 
@@ -258,33 +291,14 @@ const sendMessage = (cmid, pageid, message, modelid, button, input, loading) => 
                 parentid = lastMessageId;
             }
         } else {
-            // If no visible messages, check if there are any messages in this conversation for this model
-            // We need to find the last message from this model in the conversation
-            const allMessages = messagesContainer.find('.message');
-            let lastMessageInConversation = null;
-            allMessages.each(function() {
-                const msgId = parseInt($(this).data('messageid'), 10);
-                // Check if this message is part of the conversation by checking if it's reachable from root
-                // For now, just use the last message in the container as parent
-                lastMessageInConversation = $(this);
-            });
-            if (lastMessageInConversation && lastMessageInConversation.length > 0) {
-                const lastMessageId = parseInt(lastMessageInConversation.data('messageid'), 10);
-                if (lastMessageId && !isNaN(lastMessageId)) {
-                    parentid = lastMessageId;
-                }
-            }
+            // If no visible messages in this model for the selected conversation,
+            // anchor the new message to the selected conversation root.
+            parentid = parseInt(viewingConversation, 10);
         }
     } else {
-        // No conversation selected - check if there's a last message in this model's container
-        const allMessages = messagesContainer.find('.message');
-        if (allMessages.length > 0) {
-            const lastMessage = allMessages.last();
-            const lastMessageId = parseInt(lastMessage.data('messageid'), 10);
-            if (lastMessageId && !isNaN(lastMessageId)) {
-                parentid = lastMessageId;
-            }
-        }
+        // No conversation selected - do not chain to a previous message.
+        // Let backend create a fresh root conversation.
+        parentid = null;
     }
 
     const params = new URLSearchParams({
@@ -316,6 +330,8 @@ const sendMessage = (cmid, pageid, message, modelid, button, input, loading) => 
         loading.hide();
         if (data.success) {
             if (data.root_conversation_id) {
+                container.data('viewing-conversation', data.root_conversation_id);
+                container.attr('data-viewing-conversation', data.root_conversation_id);
                 container.data(`viewing-conversation-${modelid}`, data.root_conversation_id);
             }
             if (data.messageid && data.content) {
@@ -323,6 +339,9 @@ const sendMessage = (cmid, pageid, message, modelid, button, input, loading) => 
                     setTimeout(() => {
                         scrollToBottomForModel(pageid, modelid);
                     }, 100);
+                    input.prop('disabled', false);
+                    button.prop('disabled', false);
+                    input.focus();
                 });
             } else {
                 addError('Received response but missing message ID or content');
@@ -732,4 +751,3 @@ const createNewRoot = (cmid, pageid) => {
         addError('Error creating new conversation: ' + error.message);
     });
 };
-

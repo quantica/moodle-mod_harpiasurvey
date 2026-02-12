@@ -109,6 +109,8 @@
         <FIELD NAME="title" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false" COMMENT="Title of the page."/>
         <FIELD NAME="description" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Description/content of the page."/>
         <FIELD NAME="descriptionformat" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Format of the description field."/>
+        <FIELD NAME="evaluationtitle" TYPE="char" LENGTH="255" NOTNULL="false" SEQUENCE="false" COMMENT="Optional title displayed above the evaluation questions area."/>
+        <FIELD NAME="evaluationdescription" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="Optional helper description displayed above the evaluation questions area."/>
         <FIELD NAME="type" TYPE="char" LENGTH="50" NOTNULL="false" SEQUENCE="false" COMMENT="Type of page (opening, demographic, interaction, feedback, aichat)."/>
         <FIELD NAME="behavior" TYPE="char" LENGTH="50" NOTNULL="false" DEFAULT="continuous" SEQUENCE="false" COMMENT="Behavior mode: continuous (default), turns (turn-based navigation), multi_model (future)."/>
         <FIELD NAME="min_turns" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Minimum number of turns required (NULL = no minimum, only for turns behavior)."/>

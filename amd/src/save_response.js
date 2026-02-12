@@ -27,6 +27,43 @@ import Config from 'core/config';
 import $ from 'jquery';
 
 let initialized = false;
+let editLabel = 'Edit';
+
+const lockQuestionItem = (questionItem) => {
+    questionItem.attr('data-response-locked', '1');
+    questionItem.removeAttr('data-response-editing');
+    questionItem.find('input, select, textarea').prop('disabled', true);
+};
+
+const unlockQuestionItem = (questionItem) => {
+    questionItem.attr('data-response-locked', '0');
+    questionItem.attr('data-response-editing', '1');
+    questionItem.find('input, select, textarea').prop('disabled', false);
+};
+
+const ensureEditButton = (questionItem) => {
+    let controls = questionItem.find('.question-edit-controls');
+    if (controls.length === 0) {
+        controls = $('<div class="mt-2 question-edit-controls"></div>');
+        questionItem.append(controls);
+    }
+
+    let button = controls.find('.question-edit-btn');
+    if (button.length === 0) {
+        button = $('<button type="button" class="btn btn-sm btn-outline-secondary question-edit-btn"></button>');
+        controls.append(button);
+    }
+    button.text(editLabel);
+    button.show();
+};
+
+const hideEditButton = (questionItem) => {
+    questionItem.find('.question-edit-btn').hide();
+};
+
+const hasSavedMessage = (questionItem) => {
+    return questionItem.find('.saved-response-message').length > 0;
+};
 
 /**
  * Get a human-readable response display for a question.
@@ -84,12 +121,39 @@ export const init = () => {
         return;
     }
 
+    getString('edit', 'moodle').then((str) => {
+        editLabel = str;
+    }).catch(() => {
+        editLabel = 'Edit';
+    });
+
     // Pre-populate select dropdowns with saved values.
     $('select[data-saved-value]').each(function() {
         const select = $(this);
         const savedValue = select.data('saved-value');
         if (savedValue) {
             select.val(savedValue);
+        }
+    });
+
+    // Lock already-saved questions on load.
+    $('.question-item').each(function() {
+        const questionItem = $(this);
+        if (hasSavedMessage(questionItem)) {
+            lockQuestionItem(questionItem);
+            ensureEditButton(questionItem);
+        }
+    });
+
+    // Enable editing for a previously saved question.
+    $(document).on('click', '.question-edit-btn', function(e) {
+        e.preventDefault();
+        const questionItem = $(this).closest('.question-item');
+        unlockQuestionItem(questionItem);
+        hideEditButton(questionItem);
+        const firstInput = questionItem.find('input, select, textarea').first();
+        if (firstInput.length > 0) {
+            firstInput.focus();
         }
     });
 
@@ -113,6 +177,12 @@ export const init = () => {
 
             if (!questionid || !questiontype) {
                 return; // Skip if we can't find question ID or type.
+            }
+
+            const isLocked = String(questionItem.attr('data-response-locked')) === '1';
+            const isEditing = String(questionItem.attr('data-response-editing')) === '1';
+            if (isLocked && !isEditing) {
+                return;
             }
 
             // Get the response value based on question type.
@@ -153,7 +223,7 @@ export const init = () => {
 
         if (questionsToSave.length === 0) {
             Notification.addNotification({
-                message: 'No questions to save.',
+                message: 'No editable questions to save. Click Edit on a question first.',
                 type: 'info'
             });
             return;
@@ -282,6 +352,8 @@ const saveAllResponses = (cmid, pageid, questionsToSave, button, statusDiv) => {
                                     // Update existing message timestamp.
                                     savedMessage.html(`${icon} ${savedText} ${onText} ${datetimeStr}`);
                                 }
+                                lockQuestionItem(questionItem);
+                                ensureEditButton(questionItem);
 
                                 // Update history timeline.
                                 getString('answerhistory', 'mod_harpiasurvey').then((historyText) => {
