@@ -178,6 +178,17 @@
     background-color: #f8f9fa;
 }
 
+.evaluation-save-actions {
+    display: flex;
+    justify-content: center;
+}
+
+.evaluation-save-btn {
+    min-width: 11rem;
+    font-size: 1rem;
+    padding: 0.6rem 1.3rem;
+}
+
 .question-options .form-check-label {
     margin-left: 0.5rem;
     cursor: pointer;

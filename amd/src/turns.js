@@ -24,6 +24,28 @@ let initializedTurns = false;
 let commonHandlersRegistered = false;
 let turnHandlersRegistered = false;
 let treeHandlersRegistered = false;
+let editLabel = 'Edit';
+
+const lockQuestionItem = (questionItem) => {
+    questionItem.attr('data-response-locked', '1');
+    questionItem.removeAttr('data-response-editing');
+    questionItem.find('input, select, textarea').prop('disabled', true);
+};
+
+const ensureEditButton = (questionItem) => {
+    let controls = questionItem.find('.question-edit-controls');
+    if (controls.length === 0) {
+        controls = $('<div class="mt-2 question-edit-controls"></div>');
+        questionItem.append(controls);
+    }
+    let button = controls.find('.question-edit-btn');
+    if (button.length === 0) {
+        button = $('<button type="button" class="btn btn-sm btn-outline-secondary question-edit-btn"></button>');
+        controls.append(button);
+    }
+    button.text(editLabel);
+    button.show();
+};
 
 /**
  * Initialize turns-mode chat for all containers on the page.
@@ -32,6 +54,12 @@ const initialize = () => {
     if (initializedTurns) {
         return;
     }
+
+    getString('edit', 'moodle').then((str) => {
+        editLabel = str;
+    }).catch(() => {
+        editLabel = 'Edit';
+    });
 
     const containers = $('.ai-conversation-container[data-behavior="turns"]');
     if (containers.length === 0) {
@@ -555,8 +583,149 @@ function registerTurnHandlers() {
     if (turnHandlersRegistered) {
         return;
     }
+
+    $(document).on(
+        'click',
+        '.ai-conversation-container[data-behavior="turns"] .turn-evaluation-questions .save-turn-evaluation-questions-btn',
+        function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const button = $(this);
+            const turnId = parseInt(button.data('turn-id'), 10);
+            const pageid = parseInt(button.data('pageid'), 10);
+            const cmid = parseInt(button.data('cmid'), 10);
+
+            if (!turnId || !pageid || !cmid) {
+                Notification.addNotification({
+                    message: 'Missing required data to save responses.',
+                    type: 'error'
+                });
+                return;
+            }
+
+            const evaluationContainer = button.closest('.turn-evaluation-questions');
+            if (evaluationContainer.length === 0) {
+                return;
+            }
+
+            const responses = collectTurnEvaluationResponses(evaluationContainer);
+            if (Object.keys(responses).length === 0) {
+                Notification.addNotification({
+                    message: 'No editable questions to save. Click Edit on a question first.',
+                    type: 'info'
+                });
+                return;
+            }
+
+            const originalText = button.text();
+            button.prop('disabled', true);
+            button.text('Saving...');
+            saveTurnEvaluationResponses(cmid, pageid, turnId, responses, button, originalText);
+        }
+    );
+
     turnHandlersRegistered = true;
 }
+
+const collectTurnEvaluationResponses = (evaluationContainer) => {
+    const responses = {};
+
+    evaluationContainer.find('[data-questionid]').each(function() {
+        const item = $(this);
+        const isLocked = String(item.attr('data-response-locked')) === '1';
+        const isEditing = String(item.attr('data-response-editing')) === '1';
+        if (isLocked && !isEditing) {
+            return;
+        }
+
+        const questionId = item.data('questionid');
+        const questionType = item.data('questiontype');
+        let responseValue = null;
+
+        if (questionType === 'multiplechoice') {
+            const checked = item.find(`input[name="question_${questionId}_turn[]"]:checked`);
+            const values = [];
+            checked.each(function() {
+                values.push($(this).val());
+            });
+            responseValue = values.length > 0 ? JSON.stringify(values) : null;
+        } else if (questionType === 'select') {
+            const selected = item.find(`select[name="question_${questionId}_turn"]`);
+            responseValue = selected.length > 0 ? selected.val() : null;
+        } else if (questionType === 'singlechoice' || questionType === 'likert') {
+            const selected = item.find(`input[name="question_${questionId}_turn"]:checked`);
+            responseValue = selected.length > 0 ? selected.val() : null;
+        } else if (questionType === 'number' || questionType === 'shorttext') {
+            const input = item.find(`input[name="question_${questionId}_turn"]`);
+            responseValue = input.length > 0 ? input.val() : null;
+        } else if (questionType === 'longtext') {
+            const textarea = item.find(`textarea[name="question_${questionId}_turn"]`);
+            responseValue = textarea.length > 0 ? textarea.val() : null;
+        }
+
+        if (responseValue !== null && responseValue !== '') {
+            responses[questionId] = responseValue;
+        }
+    });
+
+    return responses;
+};
+
+const saveTurnEvaluationResponses = (cmid, pageid, turnId, responses, button, originalText) => {
+    const entries = Object.entries(responses);
+    let failedCount = 0;
+
+    let promiseChain = Promise.resolve();
+    entries.forEach(([questionId, response]) => {
+        promiseChain = promiseChain.then(() => {
+            const params = new URLSearchParams({
+                action: 'save_response',
+                cmid: cmid,
+                pageid: pageid,
+                questionid: questionId,
+                response: response,
+                turn_id: turnId,
+                sesskey: Config.sesskey
+            });
+
+            return fetch(Config.wwwroot + '/mod/harpiasurvey/ajax.php?' + params.toString(), {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then((res) => res.json())
+            .then((data) => {
+                if (!data.success) {
+                    failedCount++;
+                }
+            })
+            .catch(() => {
+                failedCount++;
+            });
+        });
+    });
+
+    promiseChain.then(() => {
+        button.prop('disabled', false);
+        button.text(originalText);
+
+        if (failedCount === 0) {
+            Notification.addNotification({
+                message: 'Responses saved.',
+                type: 'success'
+            });
+        } else {
+            Notification.addNotification({
+                message: 'Some responses failed to save.',
+                type: 'warning'
+            });
+        }
+
+        loadTurnEvaluationResponses(pageid, turnId);
+    });
+};
 
 /**
  * Get the current turn for a page (highest turn with messages).
@@ -1232,6 +1401,9 @@ const loadTurnEvaluationResponses = (pageid, turnId) => {
                     });
                 });
             }
+
+            lockQuestionItem(questionItem);
+            ensureEditButton(questionItem);
 
             getString('answerhistory', 'mod_harpiasurvey').then((historyText) => {
                 let history = questionItem.find('.answer-history');

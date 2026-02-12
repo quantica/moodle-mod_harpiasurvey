@@ -15,7 +15,7 @@
         </small>
         {{#questions}}
             <div class="question-item mb-3" data-questionid="{{id}}" data-questiontype="{{type}}" data-required="{{required}}">
-                <h6 class="mb-2">{{name}}{{#is_required}} <span class="text-danger">*</span>{{/is_required}}</h6>
+                <h6 class="mb-2">{{name}}{{#is_required}} <span class="text-danger">*</span> <span class="badge badge-warning">{{#str}}requiredlabel, mod_harpiasurvey{{/str}}</span>{{/is_required}}</h6>
                 <div class="question-description mb-2">
                     {{{description}}}
                 </div>
@@ -75,12 +75,14 @@
                 {{/has_options}}
             </div>
         {{/questions}}
-        <button type="button" class="btn btn-sm btn-primary save-turn-evaluation-questions-btn" 
-                data-turn-id="{{turn_id}}" 
-                data-pageid="{{pageid}}" 
-                data-cmid="{{cmid}}">
-            {{#str}}save, mod_harpiasurvey{{/str}}
-        </button>
+        <div class="mt-4 text-center evaluation-save-actions">
+            <button type="button" class="btn btn-primary btn-lg save-turn-evaluation-questions-btn evaluation-save-btn" 
+                    data-turn-id="{{turn_id}}" 
+                    data-pageid="{{pageid}}" 
+                    data-cmid="{{cmid}}">
+                {{#str}}save, mod_harpiasurvey{{/str}}
+            </button>
+        </div>
     </div>
     </div>
 {{/has_questions}}

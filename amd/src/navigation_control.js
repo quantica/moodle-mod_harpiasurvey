@@ -25,6 +25,7 @@ import {get_string as getString} from 'core/str';
 import $ from 'jquery';
 
 let initialized = false;
+let unloadWarningMessage = 'There are evaluation questions you did not answer. Are you sure you want to quit?';
 
 /**
  * Check if all questions on the current page are answered.
@@ -115,9 +116,12 @@ export const init = (canmanage = false) => {
     }
 
     // Check if we're in only_forward mode.
-    const navElement = $('nav[data-navigation-mode]');
+    const navElement = $('.pages-navigation-bar[data-navigation-mode], nav[data-navigation-mode]').first();
     const navigationMode = navElement.data('navigation-mode');
-    const canManageNav = navElement.data('canmanage') === true || navElement.data('canmanage') === 1;
+    const canManageValue = navElement.data('canmanage');
+    const canManageNav = canManageValue === true || canManageValue === 1 || canManageValue === '1';
+    const isOnlyForward = navigationMode === 'only_forward';
+    const isFreeNavigation = navigationMode === 'free_navigation';
 
     // If admin, no restrictions.
     if (canManageNav) {
@@ -125,8 +129,17 @@ export const init = (canmanage = false) => {
         return;
     }
 
-    // Add validation for required questions when navigating.
+    getString('unansweredquestionsleavewarning', 'mod_harpiasurvey').then((message) => {
+        unloadWarningMessage = message;
+    }).catch(() => {
+        unloadWarningMessage = 'There are evaluation questions you did not answer. Are you sure you want to quit?';
+    });
+
+    // Add validation for required questions only in only-forward mode.
     $(document).on('click', '.navigation-next-link', function(e) {
+        if (!isOnlyForward) {
+            return true;
+        }
         e.preventDefault();
         const link = $(this);
 
@@ -148,6 +161,9 @@ export const init = (canmanage = false) => {
 
     // Guard any pagination link (previous/numbered) with required question check.
     $(document).on('click', '.pagination a.page-link', function(e) {
+        if (!isOnlyForward) {
+            return true;
+        }
         const link = $(this);
         if (link.hasClass('navigation-next-link')) {
             return;
@@ -205,7 +221,7 @@ export const init = (canmanage = false) => {
         }
 
         // Check required questions before navigating to a different page.
-        if (clickedIndex >= 0 && currentIndex >= 0 && clickedIndex !== currentIndex) {
+        if (isOnlyForward && clickedIndex >= 0 && currentIndex >= 0 && clickedIndex !== currentIndex) {
             const result = areAllQuestionsAnswered();
 
             if (!result.allAnswered) {
@@ -224,6 +240,18 @@ export const init = (canmanage = false) => {
         e.preventDefault();
         return false;
     });
+
+    if (isFreeNavigation) {
+        window.addEventListener('beforeunload', (event) => {
+            const result = areAllQuestionsAnswered();
+            if (result.allAnswered) {
+                return;
+            }
+            event.preventDefault();
+            event.returnValue = unloadWarningMessage;
+            return unloadWarningMessage;
+        });
+    }
 
     initialized = true;
 };

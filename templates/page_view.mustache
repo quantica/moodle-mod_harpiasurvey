@@ -222,7 +222,7 @@
             </div>
             {{#questions}}
                 <div class="question-item mb-4" data-questionid="{{id}}" data-questiontype="{{type}}" data-required="{{required}}">
-                    <h5>{{name}}{{#is_required}} <span class="text-danger">*</span>{{/is_required}}</h5>
+                    <h5>{{name}}{{#is_required}} <span class="text-danger">*</span> <span class="badge badge-warning">{{#str}}requiredlabel, mod_harpiasurvey{{/str}}</span>{{/is_required}}</h5>
                     <div class="question-description mb-2">
                         {{{description}}}
                     </div>
@@ -306,8 +306,8 @@
             
             {{! Single save button at the end of all questions (only show if there are questions) }}
             {{#has_non_aiconversation_questions}}
-                <div class="mt-4 text-center">
-                    <button type="button" class="btn btn-primary btn-lg save-all-responses-btn"
+                <div class="mt-4 text-center evaluation-save-actions">
+                    <button type="button" class="btn btn-primary btn-lg save-all-responses-btn evaluation-save-btn"
                             data-cmid="{{cmid}}"
                             data-pageid="{{pageid}}"
                             data-testid="harpiasurvey-save-responses">
@@ -345,7 +345,7 @@
                                      data-visibility-type="{{turn_visibility_type}}"
                                      {{#turn_number}}data-turn-number="{{turn_number}}"{{/turn_number}}
                                      style="display: none;">
-                                    <h5>{{name}}{{#is_required}} <span class="text-danger">*</span>{{/is_required}}</h5>
+                                    <h5>{{name}}{{#is_required}} <span class="text-danger">*</span> <span class="badge badge-warning">{{#str}}requiredlabel, mod_harpiasurvey{{/str}}</span>{{/is_required}}</h5>
                                     <div class="question-description mb-2">
                                         {{{description}}}
                                     </div>

@@ -191,7 +191,7 @@
                             </div>
                             {{#questions}}
                                 <div class="question-item mb-4" data-questionid="{{id}}" data-questiontype="{{type}}" data-required="{{required}}">
-                                    <h5>{{name}}{{#is_required}} <span class="text-danger">*</span>{{/is_required}}</h5>
+                                    <h5>{{name}}{{#is_required}} <span class="text-danger">*</span> <span class="badge badge-warning">{{#str}}requiredlabel, mod_harpiasurvey{{/str}}</span>{{/is_required}}</h5>
                                     <div class="question-description mb-2">
                                         {{{description}}}
                                     </div>
@@ -275,8 +275,8 @@
                             
                             {{! Save button for this model's questions }}
                             {{#has_questions}}
-                                <div class="mt-4 text-center">
-                                    <button type="button" class="btn btn-primary btn-lg save-all-responses-btn" 
+                                <div class="mt-4 text-center evaluation-save-actions">
+                                    <button type="button" class="btn btn-primary btn-lg save-all-responses-btn evaluation-save-btn" 
                                             data-cmid="{{cmid}}"
                                             data-pageid="{{pageid}}">
                                         {{#str}}save, mod_harpiasurvey{{/str}}

@@ -6,6 +6,7 @@ const MODAL_ID = 'harpiasurvey-notification-modal';
 let cachedStrings = null;
 let observerStarted = false;
 let notificationPatched = false;
+let modalInitialized = false;
 
 const getType = (node) => {
     const el = $(node);
@@ -28,11 +29,11 @@ const getStrings = () => {
 
     return Promise.all([
         getString('notifications', 'mod_harpiasurvey').catch(() => 'Notifications'),
-        getString('close', 'moodle').catch(() => 'Close'),
-        getString('success', 'moodle').catch(() => 'Success'),
-        getString('error', 'moodle').catch(() => 'Error'),
-        getString('warning', 'moodle').catch(() => 'Warning'),
-        getString('info', 'moodle').catch(() => 'Info')
+        getString('notificationclose', 'mod_harpiasurvey').catch(() => 'Close'),
+        getString('notificationsuccess', 'mod_harpiasurvey').catch(() => 'Success'),
+        getString('notificationerror', 'mod_harpiasurvey').catch(() => 'Error'),
+        getString('notificationwarning', 'mod_harpiasurvey').catch(() => 'Warning'),
+        getString('notificationinfo', 'mod_harpiasurvey').catch(() => 'Info')
     ]).then((strings) => {
         cachedStrings = {
             title: strings[0],
@@ -54,8 +55,8 @@ const buildModal = (title, closeLabel, items) => {
             (item.type === 'success' ? 'success' : (item.type === 'warning' ? 'warning' : 'info'));
         return `
             <div class="alert alert-${item.type} mb-2" role="alert">
-                <span class="badge badge-${badgeClass} mr-2">${item.label}</span>
-                <span>${item.html}</span>
+                <span class="badge badge-${badgeClass} d-inline-block mb-1">${item.label}</span>
+                <div>${item.html}</div>
             </div>
         `;
     }).join('');
@@ -66,18 +67,36 @@ const buildModal = (title, closeLabel, items) => {
                 <div class="modal-content">
                     <div class="modal-header">
                         <h5 class="modal-title">${title}</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="${closeLabel}"></button>
+                        <button type="button" class="close ml-auto ms-auto" data-dismiss="modal" data-bs-dismiss="modal" aria-label="${closeLabel}">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
                     </div>
                     <div class="modal-body">
                         ${bodyItems}
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">${closeLabel}</button>
+                        <button type="button" class="btn btn-primary" data-dismiss="modal" data-bs-dismiss="modal">${closeLabel}</button>
                     </div>
                 </div>
             </div>
         </div>
     `;
+};
+
+const showModal = (modalElement) => {
+    if (!modalElement) {
+        return;
+    }
+
+    if (window.bootstrap && window.bootstrap.Modal) {
+        const modal = window.bootstrap.Modal.getOrCreateInstance(modalElement);
+        modal.show();
+        return;
+    }
+
+    if (typeof $ !== 'undefined' && $.fn && typeof $.fn.modal === 'function') {
+        $(modalElement).modal('show');
+    }
 };
 
 const collectAlerts = (root) => {
@@ -108,22 +127,32 @@ const showItemsInModal = (items) => {
         }
 
         const existing = $(`#${MODAL_ID}`);
-        if (existing.length) {
-            existing.remove();
+        if (existing.length === 0) {
+            $('body').append(buildModal(strings.title, strings.closeLabel, normalized));
+            modalInitialized = true;
+        } else if (!modalInitialized) {
+            existing.replaceWith(buildModal(strings.title, strings.closeLabel, normalized));
+            modalInitialized = true;
+        } else {
+            existing.find('.modal-title').text(strings.title);
+            existing.find('.modal-body').html(normalized.map((item) => {
+                const badgeClass = item.type === 'danger' ? 'danger' :
+                    (item.type === 'success' ? 'success' : (item.type === 'warning' ? 'warning' : 'info'));
+                return `
+                    <div class="alert alert-${item.type} mb-2" role="alert">
+                        <span class="badge badge-${badgeClass} d-inline-block mb-1">${item.label}</span>
+                        <div>${item.html}</div>
+                    </div>
+                `;
+            }).join(''));
         }
-
-        $('body').append(buildModal(strings.title, strings.closeLabel, normalized));
         const root = $('#user-notifications');
         if (root.length) {
             root.hide();
         }
 
         const modalElement = document.getElementById(MODAL_ID);
-        if (!modalElement) {
-            return;
-        }
-        const modal = new window.bootstrap.Modal(modalElement);
-        modal.show();
+        showModal(modalElement);
     });
 };
 
@@ -200,15 +229,11 @@ const patchCoreNotifications = () => {
 };
 
 export const init = () => {
-    if (!window.bootstrap || !window.bootstrap.Modal) {
-        return;
-    }
-    const root = $('#user-notifications');
-    if (!root.length) {
-        return;
-    }
-
-    showAlertsInModal(root);
-    startObserver(root);
     patchCoreNotifications();
+
+    const root = $('#user-notifications');
+    if (root.length) {
+        showAlertsInModal(root);
+        startObserver(root);
+    }
 };
