@@ -90,6 +90,55 @@ if (!$canmanage) {
     require_capability('mod/harpiasurvey:view', $context);
 }
 
+// Enforce max participants for non-managers.
+if (!$canmanage && !empty($experiment->maxparticipants) && (int)$experiment->maxparticipants > 0) {
+    $hasresponses = $DB->record_exists_sql(
+        "SELECT 1
+           FROM {harpiasurvey_responses} r
+           JOIN {harpiasurvey_pages} p ON p.id = r.pageid
+          WHERE p.experimentid = :experimentid AND r.userid = :userid",
+        ['experimentid' => $experiment->id, 'userid' => $USER->id]
+    );
+    $hasconversations = false;
+    if (!$hasresponses) {
+        $hasconversations = $DB->record_exists_sql(
+            "SELECT 1
+               FROM {harpiasurvey_conversations} c
+               JOIN {harpiasurvey_pages} p ON p.id = c.pageid
+              WHERE p.experimentid = :experimentid AND c.userid = :userid",
+            ['experimentid' => $experiment->id, 'userid' => $USER->id]
+        );
+    }
+    $isparticipant = $hasresponses || $hasconversations;
+
+    if (!$isparticipant) {
+        $participantcount = (int)$DB->count_records_sql(
+            "SELECT COUNT(DISTINCT u.userid)
+               FROM (
+                    SELECT r.userid AS userid
+                      FROM {harpiasurvey_responses} r
+                      JOIN {harpiasurvey_pages} p ON p.id = r.pageid
+                     WHERE p.experimentid = :experimentid1
+                    UNION
+                    SELECT c.userid AS userid
+                      FROM {harpiasurvey_conversations} c
+                      JOIN {harpiasurvey_pages} p2 ON p2.id = c.pageid
+                     WHERE p2.experimentid = :experimentid2
+               ) u",
+            ['experimentid1' => $experiment->id, 'experimentid2' => $experiment->id]
+        );
+
+        if ($participantcount >= (int)$experiment->maxparticipants) {
+            redirect(
+                new moodle_url('/mod/harpiasurvey/view.php', ['id' => $cm->id]),
+                get_string('experimentmaxparticipantsreached', 'mod_harpiasurvey'),
+                null,
+                \core\output\notification::NOTIFY_ERROR
+            );
+        }
+    }
+}
+
 // Determine navigation override (admins or experiment owners).
 $isowner = !empty($experiment->createdby) && ((int)$experiment->createdby === (int)$USER->id);
 $cannavigate = $canmanage || $isowner;

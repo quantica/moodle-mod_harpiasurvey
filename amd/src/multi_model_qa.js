@@ -34,6 +34,40 @@ const ensureEditButton = (questionItem) => {
     button.show();
 };
 
+const resetQuestionItemToNeutral = (questionItem) => {
+    if (!questionItem || questionItem.length === 0) {
+        return;
+    }
+
+    questionItem.removeAttr('data-response-locked');
+    questionItem.removeAttr('data-response-editing');
+    questionItem.find('.saved-response-message').remove();
+    questionItem.find('.answer-history').remove();
+    questionItem.find('.question-edit-controls').remove();
+
+    questionItem.find('input, select, textarea').prop('disabled', false);
+
+    questionItem.find('input[type="radio"], input[type="checkbox"]').each(function() {
+        $(this).prop('checked', Boolean(this.defaultChecked));
+    });
+
+    questionItem.find('select').each(function() {
+        const select = $(this);
+        const defaultOption = select.find('option').filter(function() {
+            return this.defaultSelected;
+        }).first();
+        if (defaultOption.length > 0) {
+            select.val(defaultOption.val());
+        } else {
+            select.prop('selectedIndex', 0);
+        }
+    });
+
+    questionItem.find('input[type="number"], input[type="text"], textarea').each(function() {
+        $(this).val(this.defaultValue || '');
+    });
+};
+
 export const init = () => initialize();
 
 const stateKey = (pageid, modelid) => `${pageid}_${modelid}`;
@@ -569,6 +603,9 @@ const loadQaEvaluationResponses = (pageid, modelid, questionId) => {
     if (container.length === 0) {
         container = containerWrapper;
     }
+    container.find('.question-item').each(function() {
+        resetQuestionItemToNeutral($(this));
+    });
 
     const chatContainer = $(`.multi-model-chat-container[data-pageid="${pageid}"]`);
     const cmid = parseInt(chatContainer.data('cmid') || chatContainer.attr('data-cmid'), 10);
@@ -593,7 +630,12 @@ const loadQaEvaluationResponses = (pageid, modelid, questionId) => {
         return response.json();
     })
     .then(data => {
-        if (!data.success || !data.responses) {
+        if (!data.success || !data.responses || Object.keys(data.responses).length === 0) {
+            const key = stateKey(pageid, modelid);
+            if (!qaEvaluationSaved[key]) {
+                qaEvaluationSaved[key] = {};
+            }
+            qaEvaluationSaved[key][questionId] = false;
             return;
         }
         Object.keys(data.responses).forEach((qid) => {

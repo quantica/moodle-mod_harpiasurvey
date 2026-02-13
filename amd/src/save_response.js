@@ -65,6 +65,19 @@ const hasSavedMessage = (questionItem) => {
     return questionItem.find('.saved-response-message').length > 0;
 };
 
+const sanitizeNumericValue = (value) => {
+    if (value === null || value === undefined) {
+        return '';
+    }
+
+    let normalized = String(value).replace(',', '.');
+    normalized = normalized.replace(/[^0-9.\-]/g, '');
+    normalized = normalized.replace(/(?!^)-/g, '');
+    normalized = normalized.replace(/(\..*)\./g, '$1');
+
+    return normalized;
+};
+
 /**
  * Get a human-readable response display for a question.
  *
@@ -154,6 +167,15 @@ export const init = () => {
         const firstInput = questionItem.find('input, select, textarea').first();
         if (firstInput.length > 0) {
             firstInput.focus();
+        }
+    });
+
+    // Enforce numeric-only values for number questions (including dynamically rendered ones).
+    $(document).on('input', '.question-item[data-questiontype="number"] input[type="number"]', function() {
+        const input = $(this);
+        const sanitized = sanitizeNumericValue(input.val());
+        if (input.val() !== sanitized) {
+            input.val(sanitized);
         }
     });
 

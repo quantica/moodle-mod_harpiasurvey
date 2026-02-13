@@ -45,9 +45,6 @@
         <i class="fa fa-{{#is_root}}{{#is_direct_branch}}code-branch{{/is_direct_branch}}{{^is_direct_branch}}comments{{/is_direct_branch}}{{/is_root}}{{^is_root}}code-branch{{/is_root}} mr-2 {{#is_current}}text-white{{/is_current}}{{^is_current}}text-primary{{/is_current}}" style="color: inherit;"></i>
         <span class="flex-grow-1 font-weight-{{#is_current}}bold{{/is_current}}{{^is_current}}normal{{/is_current}}" style="line-height: 1.2;">
             {{#str}}turn, mod_harpiasurvey{{/str}} {{#turn_number}}{{turn_number}}{{/turn_number}}{{^turn_number}}{{turn_id}}{{/turn_number}}
-            {{#branch_label}}
-                <small class="text-muted ml-1">({{branch_label}})</small>
-            {{/branch_label}}
         </span>
         {{#is_current}}
             <span class="badge badge-light badge-sm ml-2" title="{{#str}}currentbranch, mod_harpiasurvey{{/str}}">

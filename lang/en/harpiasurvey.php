@@ -353,3 +353,7 @@ $string['branchcreated'] = 'Branch created successfully.';
 $string['branchhelpertree'] = 'Click "Branch" on any turn to fork a new path from that point.';
 $string['requiredlabel'] = 'Required';
 $string['unansweredquestionsleavewarning'] = 'There are evaluation questions you did not answer. Are you sure you want to quit?';
+$string['turnevaluationrequiresturn'] = 'Turn-based evaluation answers must be linked to a specific turn.';
+$string['invalidturnevaluationtarget'] = 'The selected turn is invalid for this page/user.';
+$string['comingsoon'] = 'This option will be implemented later.';
+$string['experimentmaxparticipantsreached'] = 'This experiment has reached the maximum number of participants.';

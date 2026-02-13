@@ -115,7 +115,7 @@
 
                     {{! Q&A history list per model }}
                     {{#aichat.is_qa_mode}}
-                        <div class="qa-questions-list mb-2" data-pageid="{{pageid}}" data-model-id="{{id}}" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 160px; overflow-y: auto;">
+                        <div class="qa-questions-list mb-2" data-pageid="{{pageid}}" data-model-id="{{id}}" style="height: 76px; overflow-y: auto; overflow-x: hidden;">
                             {{#has_qa_questions}}
                                 {{#qa_questions}}
                                     <button type="button"
@@ -154,9 +154,10 @@
                     {{! Q&A new question button per model }}
                     {{#aichat.is_qa_mode}}
                         <div class="mt-2 d-flex justify-content-end">
-                            <button type="button" class="btn btn-outline-secondary btn-sm new-question-btn"
+                            <button type="button" class="btn btn-sm new-question-btn new-question-action-btn"
                                     data-pageid="{{pageid}}"
                                     data-model-id="{{id}}">
+                                <i class="fa fa-plus-circle mr-1" aria-hidden="true"></i>
                                 {{#str}}newquestion, mod_harpiasurvey{{/str}}
                             </button>
                         </div>

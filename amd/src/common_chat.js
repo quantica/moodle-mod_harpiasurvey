@@ -34,8 +34,14 @@ export const addError = (message) => {
 
 // Helper: get cmid for a page
 export const getCmid = (pageid) => {
-    const container = $(`#chat-messages-page-${pageid}`).closest('.ai-conversation-container');
-    return container.data('cmid');
+    let container = $(`#chat-messages-page-${pageid}`).closest('.ai-conversation-container');
+    if (container.length === 0) {
+        container = $(`.multi-model-chat-container[data-pageid="${pageid}"]`);
+    }
+    if (container.length === 0) {
+        return null;
+    }
+    return parseInt(container.data('cmid') || container.attr('data-cmid'), 10) || null;
 };
 
 // Helper: find root node containing a turn

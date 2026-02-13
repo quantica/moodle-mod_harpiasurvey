@@ -125,18 +125,14 @@ class experiment extends \moodleform {
             }
         }
 
-        // Validation field (cross-validation dropdown).
-        $validationoptions = [
-            'none' => get_string('validationnone', 'mod_harpiasurvey'),
-            'crossvalidation' => get_string('validationcrossvalidation', 'mod_harpiasurvey'),
-        ];
-        $mform->addElement('select', 'validation', get_string('validation', 'mod_harpiasurvey'), $validationoptions);
-        $mform->setType('validation', PARAM_ALPHANUMEXT);
-        if (isset($this->_customdata->hascrossvalidation)) {
-            $mform->setDefault('validation', $this->_customdata->hascrossvalidation ? 'crossvalidation' : 'none');
-        } else {
-            $mform->setDefault('validation', 'none');
-        }
+        // Validation field temporarily disabled.
+        // TODO: Re-enable once experiment validation workflow is implemented.
+        $mform->addElement(
+            'static',
+            'validationcomingsoon',
+            get_string('validation', 'mod_harpiasurvey'),
+            get_string('comingsoon', 'mod_harpiasurvey')
+        );
 
         // Description field (editor).
         $customdata = $this->_customdata ?? new stdClass();

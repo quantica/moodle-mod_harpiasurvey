@@ -35,6 +35,40 @@ const ensureEditButton = (questionItem) => {
     button.show();
 };
 
+const resetQuestionItemToNeutral = (questionItem) => {
+    if (!questionItem || questionItem.length === 0) {
+        return;
+    }
+
+    questionItem.removeAttr('data-response-locked');
+    questionItem.removeAttr('data-response-editing');
+    questionItem.find('.saved-response-message').remove();
+    questionItem.find('.answer-history').remove();
+    questionItem.find('.question-edit-controls').remove();
+
+    questionItem.find('input, select, textarea').prop('disabled', false);
+
+    questionItem.find('input[type="radio"], input[type="checkbox"]').each(function() {
+        $(this).prop('checked', Boolean(this.defaultChecked));
+    });
+
+    questionItem.find('select').each(function() {
+        const select = $(this);
+        const defaultOption = select.find('option').filter(function() {
+            return this.defaultSelected;
+        }).first();
+        if (defaultOption.length > 0) {
+            select.val(defaultOption.val());
+        } else {
+            select.prop('selectedIndex', 0);
+        }
+    });
+
+    questionItem.find('input[type="number"], input[type="text"], textarea').each(function() {
+        $(this).val(this.defaultValue || '');
+    });
+};
+
 export const init = () => initialize();
 
 const initialize = () => {
@@ -534,6 +568,9 @@ const loadQaEvaluationResponses = (pageid, questionId) => {
     if (container.length === 0) {
         container = containerWrapper;
     }
+    container.find('.question-item').each(function() {
+        resetQuestionItemToNeutral($(this));
+    });
 
     const params = new URLSearchParams({
         action: 'get_turn_responses',
@@ -556,7 +593,11 @@ const loadQaEvaluationResponses = (pageid, questionId) => {
         return response.json();
     })
     .then(data => {
-        if (!data.success || !data.responses) {
+        if (!data.success || !data.responses || Object.keys(data.responses).length === 0) {
+            if (!qaEvaluationSaved[pageid]) {
+                qaEvaluationSaved[pageid] = {};
+            }
+            qaEvaluationSaved[pageid][questionId] = false;
             return;
         }
         Object.keys(data.responses).forEach((questionId) => {

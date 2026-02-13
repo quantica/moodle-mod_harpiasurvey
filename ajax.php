@@ -70,9 +70,10 @@ header('Content-Type: application/json');
  * @param int $pageid Page ID
  * @param int $userid User ID
  * @param int $turn_id Turn ID to get history for
+ * @param int|null $modelid Optional model ID to scope history (for multi-model turns)
  * @return array Array of history messages with 'role' and 'content'
  */
-function get_turn_history($DB, $pageid, $userid, $turn_id) {
+function get_turn_history($DB, $pageid, $userid, $turn_id, $modelid = null) {
     // Check if this turn is a branch (has a parent).
     $branch = $DB->get_record('harpiasurvey_turn_branches', [
         'pageid' => $pageid,
@@ -124,10 +125,15 @@ function get_turn_history($DB, $pageid, $userid, $turn_id) {
     
     list($insql, $inparams) = $DB->get_in_or_equal($turn_ids_to_include, SQL_PARAMS_NAMED);
     $params = array_merge(['pageid' => $pageid, 'userid' => $userid], $inparams);
+    $modelsql = '';
+    if ($modelid !== null) {
+        $modelsql = ' AND modelid = :modelid';
+        $params['modelid'] = $modelid;
+    }
     
     $historyrecords = $DB->get_records_sql(
         "SELECT * FROM {harpiasurvey_conversations} 
-         WHERE pageid = :pageid AND userid = :userid AND turn_id $insql 
+         WHERE pageid = :pageid AND userid = :userid AND turn_id $insql {$modelsql}
          ORDER BY turn_id ASC, timecreated ASC",
         $params
     );
@@ -201,6 +207,18 @@ switch ($action) {
             'id' => $questionid,
             'harpiasurveyid' => $harpiasurvey->id
         ], '*', MUST_EXIST);
+
+        if ($question->type === 'number' && $response !== null && $response !== '') {
+            $normalizedresponse = str_replace(',', '.', trim((string)$response));
+            if (!is_numeric($normalizedresponse)) {
+                echo json_encode([
+                    'success' => false,
+                    'message' => get_string('invalidnumber', 'mod_harpiasurvey')
+                ]);
+                break;
+            }
+            $response = $normalizedresponse;
+        }
         
         // Check if question is already on this page.
         $existing = $DB->get_record('harpiasurvey_page_questions', [
@@ -279,6 +297,35 @@ switch ($action) {
                 'message' => 'Invalid page'
             ]);
             break;
+        }
+
+        // For turns mode, every evaluation response must be explicitly tied to a turn.
+        if ($page->type === 'aichat' && ($page->behavior ?? '') === 'turns') {
+            if ($turn_id === null) {
+                echo json_encode([
+                    'success' => false,
+                    'message' => get_string('turnevaluationrequiresturn', 'mod_harpiasurvey')
+                ]);
+                break;
+            }
+
+            $turnexists = $DB->record_exists('harpiasurvey_conversations', [
+                'pageid' => $pageid,
+                'userid' => $USER->id,
+                'turn_id' => $turn_id
+            ]) || $DB->record_exists('harpiasurvey_turn_branches', [
+                'pageid' => $pageid,
+                'userid' => $USER->id,
+                'child_turn_id' => $turn_id
+            ]);
+
+            if (!$turnexists) {
+                echo json_encode([
+                    'success' => false,
+                    'message' => get_string('invalidturnevaluationtarget', 'mod_harpiasurvey')
+                ]);
+                break;
+            }
         }
         
         // Verify question belongs to this harpiasurvey instance.
@@ -799,22 +846,26 @@ switch ($action) {
         // For turns mode, use requested turn_id if provided, otherwise calculate it.
         $turn_id = null;
         if ($behavior === 'turns') {
+            $turnscopewhere = "pageid = ? AND userid = ? AND turn_id IS NOT NULL AND modelid = ?";
+            $turnscopeparams = [$pageid, $USER->id, $modelid];
+
             // Get the current highest turn number for this user and page.
             $currentmaxturn = $DB->get_record_sql(
                 "SELECT MAX(turn_id) as max_turn FROM {harpiasurvey_conversations} 
-                 WHERE pageid = ? AND userid = ? AND turn_id IS NOT NULL",
-                [$pageid, $USER->id]
+                 WHERE {$turnscopewhere}",
+                $turnscopeparams
             );
             $currentturn = ($currentmaxturn && $currentmaxturn->max_turn) ? $currentmaxturn->max_turn : 0;
             
             if ($requested_turn_id !== null) {
-                // Check if the requested turn is complete. If it is, we need to create a new turn.
+                // Check if the requested turn is complete for this model.
                 $requestedturnmessages = $DB->get_records_sql(
                     "SELECT * FROM {harpiasurvey_conversations} 
                      WHERE pageid = ? AND userid = ? AND turn_id = ? 
+                     AND modelid = ?
                      AND content != '[New conversation - send a message to start]'
                      ORDER BY timecreated ASC",
-                    [$pageid, $USER->id, $requested_turn_id]
+                    [$pageid, $USER->id, $requested_turn_id, $modelid]
                 );
                 
                 $hasuser = false;
@@ -827,14 +878,18 @@ switch ($action) {
                     }
                 }
                 
-                // If requested turn is complete, create a new turn instead.
+                // For turns mode, never auto-move messages to a new turn on send.
+                // New turns must be created explicitly via create_branch/create_root.
                 if ($hasuser && $hasai) {
-                    // Turn is complete - create next turn.
-                    $turn_id = $currentturn + 1;
-                } else {
-                    // Turn is not complete - use the requested turn.
-                    $turn_id = $requested_turn_id;
+                    echo json_encode([
+                        'success' => false,
+                        'message' => get_string('chatlocked', 'mod_harpiasurvey')
+                    ]);
+                    break;
                 }
+
+                // Turn is not complete - use requested turn as-is.
+                $turn_id = $requested_turn_id;
             } else {
                 // Fallback: Get the last turn_id for this user and page.
                 $turn_id = ($currentturn > 0) ? ($currentturn + 1) : 1;
@@ -860,9 +915,10 @@ switch ($action) {
                     $turnmessages = $DB->get_records_sql(
                         "SELECT * FROM {harpiasurvey_conversations} 
                          WHERE pageid = ? AND userid = ? AND turn_id = ? 
+                         AND modelid = ?
                          AND content != '[New conversation - send a message to start]'
                          ORDER BY timecreated ASC",
-                        [$pageid, $USER->id, $turn_id]
+                        [$pageid, $USER->id, $turn_id, $modelid]
                     );
                     
                     // If there are no messages at all, allow the first message.
@@ -993,7 +1049,7 @@ switch ($action) {
             }
         } else if ($behavior === 'turns') {
             // For turns mode, get history based on branch tree structure.
-            $history = get_turn_history($DB, $pageid, $USER->id, $turn_id);
+            $history = get_turn_history($DB, $pageid, $USER->id, $turn_id, $modelid);
         } else {
             // Q&A mode: only include current message.
             $history[] = [

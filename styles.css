@@ -418,6 +418,34 @@
     height: 1.25rem;
 }
 
+/* Q&A question list: keep layout stable with large amount of items */
+.path-mod-harpiasurvey .qa-questions-list,
+.multi-model-chat-container .qa-questions-list,
+.ai-conversation-container[data-behavior="qa"] .qa-questions-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    height: 76px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden;
+    padding-right: 0.25rem;
+    align-content: flex-start;
+}
+
+.path-mod-harpiasurvey .new-question-action-btn {
+    background-color: #0d6efd;
+    border: 1px solid #0b5ed7;
+    color: #fff;
+    font-weight: 600;
+}
+
+.path-mod-harpiasurvey .new-question-action-btn:hover,
+.path-mod-harpiasurvey .new-question-action-btn:focus {
+    background-color: #0b5ed7;
+    border-color: #0a58ca;
+    color: #fff;
+}
+
 .path-mod-harpiasurvey .likert-option label {
     font-size: 0.9rem;
     margin-top: 0.5rem;
@@ -803,4 +831,28 @@
     .conversation-item h6 {
         font-size: 0.875rem;
     }
+}
+
+/* Sticky header for long stats tables */
+.path-mod-harpiasurvey .harpiasurvey-stats-table {
+    --harpiasurvey-sticky-top: 60px;
+    /* sane default for fixed navbar-only themes */
+}
+
+/* Classplay has primary + secondary nav */
+.path-mod-harpiasurvey .harpiasurvey-stats-table {
+    --harpiasurvey-sticky-top: calc(var(--navbar-height, 60px) + 10px);
+}
+
+/* Classplay accessibility bar adds extra top offset */
+body.hasaccessibilitybar.path-mod-harpiasurvey .harpiasurvey-stats-table {
+    --harpiasurvey-sticky-top: calc(var(--navbar-height, 60px) + 10px);
+}
+
+.path-mod-harpiasurvey .harpiasurvey-stats-table table thead th {
+    position: sticky;
+    top: var(--harpiasurvey-sticky-top);
+    z-index: 20;
+    background-color: #343a40;
+    border-bottom: 1px solid #495057;
 }

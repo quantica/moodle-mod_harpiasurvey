@@ -355,3 +355,7 @@ $string['createdirectbranch'] = 'Criar ramo direto';
 $string['createdirectbranch_help'] = 'Cria um novo turno que continua diretamente deste turno.';
 $string['requiredlabel'] = 'Obrigatória';
 $string['unansweredquestionsleavewarning'] = 'Há perguntas de avaliação que você não respondeu. Tem certeza de que deseja sair?';
+$string['turnevaluationrequiresturn'] = 'As respostas da avaliação por turnos devem estar vinculadas a um turno específico.';
+$string['invalidturnevaluationtarget'] = 'O turno selecionado é inválido para esta página/usuário.';
+$string['comingsoon'] = 'Esta opção será implementada em breve.';
+$string['experimentmaxparticipantsreached'] = 'Este experimento atingiu o número máximo de participantes.';

@@ -47,6 +47,40 @@ const ensureEditButton = (questionItem) => {
     button.show();
 };
 
+const resetQuestionItemToNeutral = (questionItem) => {
+    if (!questionItem || questionItem.length === 0) {
+        return;
+    }
+
+    questionItem.removeAttr('data-response-locked');
+    questionItem.removeAttr('data-response-editing');
+    questionItem.find('.saved-response-message').remove();
+    questionItem.find('.answer-history').remove();
+    questionItem.find('.question-edit-controls').remove();
+
+    questionItem.find('input, select, textarea').prop('disabled', false);
+
+    questionItem.find('input[type="radio"], input[type="checkbox"]').each(function() {
+        $(this).prop('checked', Boolean(this.defaultChecked));
+    });
+
+    questionItem.find('select').each(function() {
+        const select = $(this);
+        const defaultOption = select.find('option').filter(function() {
+            return this.defaultSelected;
+        }).first();
+        if (defaultOption.length > 0) {
+            select.val(defaultOption.val());
+        } else {
+            select.prop('selectedIndex', 0);
+        }
+    });
+
+    questionItem.find('input[type="number"], input[type="text"], textarea').each(function() {
+        $(this).val(this.defaultValue || '');
+    });
+};
+
 export const init = () => initialize();
 
 /**
@@ -121,6 +155,16 @@ const initMultiModelTurnsPage = (pageid) => {
     const urlParams = new URLSearchParams(window.location.search);
     const urlTurn = urlParams.get('turn');
     const urlModel = urlParams.get('model');
+    const urlBranch = urlParams.get('branch');
+
+    const sidebar = $(`#conversation-tree-sidebar-${pageid}`);
+    if (sidebar.length > 0 && urlBranch !== null && urlBranch !== '') {
+        const parsedBranchRoot = parseInt(urlBranch, 10);
+        if (!isNaN(parsedBranchRoot) && parsedBranchRoot > 0) {
+            sidebar.data('sidebar-view', 'detail');
+            sidebar.data('branch-root', parsedBranchRoot);
+        }
+    }
     
     // First, ensure all messages from backend have correct data attributes
     tabPanes.each(function() {
@@ -191,7 +235,6 @@ const initMultiModelTurnsPage = (pageid) => {
     }
     
     // Load conversation tree (shared across models for turns mode)
-    const sidebar = $(`#conversation-tree-sidebar-${pageid}`);
     if (sidebar.length > 0) {
         sidebar.show();
         const firstModel = tabPanes.first().data('model-id');
@@ -249,6 +292,41 @@ const getViewingTurnForModel = (pageid, modelid) => {
 };
 
 /**
+ * Sync turns URL state for multi-model mode (turn + model + branch root when applicable).
+ *
+ * @param {number} pageid Page ID
+ * @param {number} modelid Model ID
+ * @param {number|null} turnOverride Turn to persist (defaults to current viewing turn for model)
+ */
+const syncTurnsUrlStateForModel = (pageid, modelid, turnOverride = null) => {
+    if (!modelid || isNaN(modelid)) {
+        return;
+    }
+
+    const turn = turnOverride !== null ? parseInt(turnOverride, 10) : getViewingTurnForModel(pageid, modelid);
+    if (!turn || isNaN(turn)) {
+        return;
+    }
+
+    const sidebar = $(`#conversation-tree-sidebar-${pageid}`);
+    const branchRoot = parseInt(sidebar.data('branch-root'), 10);
+    const viewMode = sidebar.data('sidebar-view');
+
+    const urlParams = new URLSearchParams(window.location.search);
+    urlParams.set('turn', turn);
+    urlParams.set('model', modelid);
+
+    if (viewMode && viewMode !== 'list' && branchRoot && !isNaN(branchRoot)) {
+        urlParams.set('branch', branchRoot);
+    } else {
+        urlParams.delete('branch');
+    }
+
+    const newUrl = window.location.pathname + '?' + urlParams.toString();
+    window.history.replaceState({}, '', newUrl);
+};
+
+/**
  * Set viewing turn for a specific model.
  *
  * @param {number} pageid Page ID
@@ -264,12 +342,7 @@ const setViewingTurnForModel = (pageid, modelid, turn) => {
     }
     modelTurns[pageid][modelid] = turn;
     
-    // Update URL with turn and model parameters
-    const urlParams = new URLSearchParams(window.location.search);
-    urlParams.set('turn', turn);
-    urlParams.set('model', modelid);
-    const newUrl = window.location.pathname + '?' + urlParams.toString();
-    window.history.replaceState({}, '', newUrl);
+    syncTurnsUrlStateForModel(pageid, modelid, turn);
     
     // Activate the correct model tab
     const tabButton = $(`#model-tab-${modelid}-${pageid}`);
@@ -577,7 +650,7 @@ const ensureTurnEvaluationQuestionsRenderedForModel = (pageid, modelid, turn) =>
     try {
         const questionsData = JSON.parse(scriptEl.text());
         const tabPane = $(`#model-pane-${modelid}-${pageid}`);
-        const questionsContainer = tabPane.find('.turn-evaluation-questions');
+        let questionsContainer = tabPane.find('.turn-evaluation-questions');
         
         if (questionsContainer.length === 0) {
             // Create container if it doesn't exist
@@ -642,6 +715,9 @@ const loadTurnEvaluationResponsesForModel = (pageid, modelid, turn) => {
     if (questionsContainer.length === 0) {
         return;
     }
+    questionsContainer.find('.question-item').each(function() {
+        resetQuestionItemToNeutral($(this));
+    });
 
     const params = new URLSearchParams({
         action: 'get_turn_responses',
@@ -664,7 +740,7 @@ const loadTurnEvaluationResponsesForModel = (pageid, modelid, turn) => {
         return response.json();
     })
     .then(data => {
-        if (!data.success || !data.responses) {
+        if (!data.success || !data.responses || Object.keys(data.responses).length === 0) {
             return;
         }
         Object.keys(data.responses).forEach((questionId) => {
@@ -1104,6 +1180,9 @@ const loadConversationTree = (pageid) => {
                     renderConversationList(pageid, data.tree.roots);
                 }
             }
+            if (activeModelId) {
+                syncTurnsUrlStateForModel(pageid, activeModelId, viewingTurn);
+            }
             
             return data.tree;
         } else {
@@ -1123,14 +1202,84 @@ const loadConversationTree = (pageid) => {
 };
 
 /**
+ * Resolve hierarchical turn number for a specific turn ID.
+ * Resets per root conversation (1,2,3...) and uses dotted numbering for branches (2.1, 2.2).
+ *
+ * @param {number} pageid Page ID
+ * @param {number} turnId Turn ID
+ * @return {string|null} Hierarchical turn number
+ */
+const getTurnNumberForId = (pageid, turnId) => {
+    const tree = conversationTrees[pageid];
+    if (!tree || !tree.roots) {
+        return null;
+    }
+
+    const root = findRootForTurn(tree.roots, turnId);
+    if (!root) {
+        return null;
+    }
+
+    const findAndNumber = (node, targetId, parentNumber, turnIndex) => {
+        const nodeNumber = calculateTurnNumber(node, turnIndex, parentNumber);
+
+        if (parseInt(node.turn_id, 10) === parseInt(targetId, 10)) {
+            return nodeNumber;
+        }
+
+        if (node.direct_branches && node.direct_branches.length > 0) {
+            const sortedDB = [...node.direct_branches].sort((a, b) =>
+                parseInt(a.turn_id, 10) - parseInt(b.turn_id, 10)
+            );
+            let dbCounter = turnIndex + 1;
+            for (const db of sortedDB) {
+                const dbNumber = calculateTurnNumber(db, dbCounter, null);
+                if (parseInt(db.turn_id, 10) === parseInt(targetId, 10)) {
+                    return dbNumber;
+                }
+                if (db.children && db.children.length > 0) {
+                    const sortedChildren = [...db.children].sort((a, b) =>
+                        parseInt(a.turn_id, 10) - parseInt(b.turn_id, 10)
+                    );
+                    for (let i = 0; i < sortedChildren.length; i++) {
+                        const found = findAndNumber(sortedChildren[i], targetId, dbNumber, i);
+                        if (found) {
+                            return found;
+                        }
+                    }
+                }
+                dbCounter++;
+            }
+        }
+
+        if (node.children && node.children.length > 0) {
+            const sortedChildren = [...node.children].sort((a, b) =>
+                parseInt(a.turn_id, 10) - parseInt(b.turn_id, 10)
+            );
+            for (let i = 0; i < sortedChildren.length; i++) {
+                const found = findAndNumber(sortedChildren[i], targetId, nodeNumber, i);
+                if (found) {
+                    return found;
+                }
+            }
+        }
+
+        return null;
+    };
+
+    return findAndNumber(root, turnId, null, 0);
+};
+
+/**
  * Prepare node data for recursive rendering.
  */
-const prepareNodeData = (node, level, currentTurnId, pageid, cmid, turnIndex = 0, parentNumber = null, includeChildren = true) => {
+const prepareNodeData = (node, level, currentTurnId, pageid, cmid, turnIndex = 0, parentNumber = null,
+    includeChildren = true, forcedTurnNumber = null) => {
     const isCurrent = parseInt(node.turn_id, 10) === parseInt(currentTurnId, 10);
     const hasChildren = node.children && node.children.length > 0;
     const isDirectBranch = node.is_direct_branch || false;
     const isRoot = node.is_root || false;
-    const turnNumber = calculateTurnNumber(node, turnIndex, parentNumber);
+    const turnNumber = forcedTurnNumber !== null ? String(forcedTurnNumber) : calculateTurnNumber(node, turnIndex, parentNumber);
 
     return {
         turn_id: node.turn_id,
@@ -1180,7 +1329,8 @@ const renderConversationDetail = (pageid, root, viewingTurn = null) => {
     sidebar.data('branch-root', root.turn_id);
 
     let turnCounter = 0;
-    const rootNodeData = prepareNodeData(root, 0, activeTurn, pageid, cmid, turnCounter, null, false);
+    const rootTurnNumber = getTurnNumberForId(pageid, root.turn_id) || '1';
+    const rootNodeData = prepareNodeData(root, 0, activeTurn, pageid, cmid, turnCounter, null, false, rootTurnNumber);
     turnCounter++;
 
     const directBranches = [];
@@ -1190,7 +1340,19 @@ const renderConversationDetail = (pageid, root, viewingTurn = null) => {
             parseInt(a.turn_id, 10) - parseInt(b.turn_id, 10)
         );
         sortedDirectBranches.forEach((node) => {
-            directBranches.push(prepareNodeData(node, 0, activeTurn, pageid, cmid, turnCounter, null, false));
+            const childTurnNumber = getTurnNumberForId(pageid, node.turn_id) ||
+                calculateTurnNumber(node, turnCounter, null);
+            directBranches.push(prepareNodeData(
+                node,
+                0,
+                activeTurn,
+                pageid,
+                cmid,
+                turnCounter,
+                null,
+                false,
+                childTurnNumber
+            ));
             turnCounter++;
         });
     }
@@ -1268,6 +1430,11 @@ const hasUnsavedTurnEvaluationForModel = (pageid, modelid, turnId) => {
  * @param {number} turnId Turn ID
  */
 const navigateToTurnForModel = (pageid, modelid, turnId) => {
+    if (!modelTurns[pageid]) {
+        modelTurns[pageid] = {};
+    }
+    modelTurns[pageid][modelid] = turnId;
+
     setViewingTurnForModel(pageid, modelid, turnId);
     updateTurnDisplayForModel(pageid, modelid);
     updateChatLockStateForModel(pageid, modelid);
@@ -1275,8 +1442,18 @@ const navigateToTurnForModel = (pageid, modelid, turnId) => {
     
     // Load turn evaluation questions
     ensureTurnEvaluationQuestionsRenderedForModel(pageid, modelid, turnId).then(() => {
+        const tabPane = $(`#model-pane-${modelid}-${pageid}`);
+        tabPane.find('.turn-evaluation-questions .question-item').each(function() {
+            resetQuestionItemToNeutral($(this));
+        });
         loadTurnEvaluationResponsesForModel(pageid, modelid, turnId);
     });
+
+    const sidebar = $(`#conversation-tree-sidebar-${pageid}`);
+    if (sidebar.length) {
+        sidebar.data('sidebar-view', 'detail');
+        loadConversationTree(pageid);
+    }
 };
 
 /**
@@ -1322,9 +1499,16 @@ const createBranchFromTurnForModel = (cmid, pageid, turnId, button) => {
                 sidebar.data('branch-root', turnId);
                 sidebar.data('sidebar-view', 'detail');
             }
-            loadConversationTree(pageid);
+
+            const container = $(`.multi-model-chat-container[data-pageid="${pageid}"]`);
+            const activeModelId = parseInt(container.find('.tab-pane.active').data('model-id'), 10);
+            if (activeModelId && data.new_turn_id) {
+                navigateToTurnForModel(pageid, activeModelId, parseInt(data.new_turn_id, 10));
+            } else {
+                loadConversationTree(pageid);
+            }
             Notification.addNotification({
-                message: data.message || 'Branch created successfully',
+                message: data.message || 'Turn created successfully',
                 type: 'success'
             });
         } else {
@@ -1345,6 +1529,26 @@ function registerTreeHandlers() {
     if (treeHandlersRegistered) {
         return;
     }
+
+    // Handle turn-card navigation clicks (detail view).
+    $(document).on('click', '.tree-node-content[data-action="navigate"]', function(e) {
+        e.preventDefault();
+        const node = $(this);
+        const turnId = parseInt(node.data('turn-id'), 10);
+        const pageid = parseInt(node.closest('.conversation-tree-sidebar').attr('id').replace('conversation-tree-sidebar-', ''), 10);
+        if (!pageid || !turnId) {
+            return;
+        }
+
+        const container = $(`.multi-model-chat-container[data-pageid="${pageid}"]`);
+        let activeModelId = parseInt(container.find('.tab-pane.active').data('model-id'), 10);
+        if (!activeModelId || isNaN(activeModelId)) {
+            activeModelId = parseInt(container.find('.tab-pane[data-model-id]').first().data('model-id'), 10);
+        }
+        if (activeModelId) {
+            navigateToTurnForModel(pageid, activeModelId, turnId);
+        }
+    });
     
     // Handle tree node navigation clicks (for list view).
     $(document).on('click', '.multi-model-chat-container[data-behavior="turns"] ~ .conversation-tree-sidebar .conversation-item, .conversation-tree-sidebar .conversation-item', function(e) {
@@ -1402,6 +1606,11 @@ function registerTreeHandlers() {
         sidebar.data('sidebar-view', 'list');
         sidebar.data('branch-root', null);
         sidebar.data('branch-stack', []);
+        const container = $(`.multi-model-chat-container[data-pageid="${pageid}"]`);
+        const activeModelId = parseInt(container.find('.tab-pane.active').data('model-id'), 10);
+        if (activeModelId) {
+            syncTurnsUrlStateForModel(pageid, activeModelId);
+        }
 
         const tree = conversationTrees[pageid];
         if (tree) {
@@ -1437,6 +1646,11 @@ function registerTreeHandlers() {
         sidebar.data('branch-stack', stack);
         sidebar.data('branch-root', previousRoot || null);
         sidebar.data('sidebar-view', 'detail');
+        const container = $(`.multi-model-chat-container[data-pageid="${pageid}"]`);
+        const activeModelId = parseInt(container.find('.tab-pane.active').data('model-id'), 10);
+        if (activeModelId) {
+            syncTurnsUrlStateForModel(pageid, activeModelId);
+        }
         loadConversationTree(pageid);
     });
 
@@ -1592,6 +1806,25 @@ function registerTreeHandlers() {
             return;
         }
         createNewRootForModel(cmid, pageid);
+    });
+
+    // Keep turn context synchronized when switching model tabs.
+    $(document).on('shown.bs.tab', '.multi-model-chat-container[data-behavior="turns"] .nav-link[data-model-id]', function() {
+        const tab = $(this);
+        const modelid = parseInt(tab.data('model-id'), 10);
+        const container = tab.closest('.multi-model-chat-container');
+        const pageid = parseInt(container.data('pageid'), 10);
+        if (!modelid || !pageid) {
+            return;
+        }
+        const viewingTurn = getViewingTurnForModel(pageid, modelid);
+        updateTurnDisplayForModel(pageid, modelid);
+        updateChatLockStateForModel(pageid, modelid);
+        filterMessagesByTurnForModel(pageid, modelid, viewingTurn);
+        ensureTurnEvaluationQuestionsRenderedForModel(pageid, modelid, viewingTurn).then(() => {
+            loadTurnEvaluationResponsesForModel(pageid, modelid, viewingTurn);
+        });
+        syncTurnsUrlStateForModel(pageid, modelid, viewingTurn);
     });
     
     // Handle export conversation button clicks.

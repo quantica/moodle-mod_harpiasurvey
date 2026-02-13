@@ -675,10 +675,19 @@ foreach ($responseslist as $item) {
 
 foreach ($grouped as $key => $items) {
     $meta = $evaluationmeta[$key] ?? null;
+    $latestresponsetime = 0;
+    foreach ($items as $groupitem) {
+        $itemtime = (int)($groupitem['timecreated_ts'] ?? 0);
+        if ($itemtime > $latestresponsetime) {
+            $latestresponsetime = $itemtime;
+        }
+    }
+    $metatime = (int)($meta['timelast'] ?? ($meta['timecreated'] ?? 0));
+    $groupsorttime = max($metatime, $latestresponsetime);
     $entries[] = [
         'type' => 'group',
         'sort_user' => $items[0]['user'],
-        'sort_time' => $meta['timecreated'] ?? ($items[0]['timecreated_ts'] ?? 0),
+        'sort_time' => $groupsorttime,
         'groupkey' => $key,
         'meta' => $meta,
         'items' => $items

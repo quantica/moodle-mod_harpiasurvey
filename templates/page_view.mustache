@@ -138,7 +138,7 @@
 
             {{! Q&A history list }}
             {{#aichat.is_qa_mode}}
-                <div class="qa-questions-list mb-2" data-pageid="{{pageid}}" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 160px; overflow-y: auto;">
+                <div class="qa-questions-list mb-2" data-pageid="{{pageid}}" style="height: 76px; overflow-y: auto; overflow-x: hidden;">
                     {{#aichat.has_qa_questions}}
                         {{#aichat.qa_questions}}
                             <button type="button"
@@ -163,7 +163,8 @@
             </div>
             {{#aichat.is_qa_mode}}
                 <div class="mt-2 d-flex justify-content-end">
-                    <button type="button" class="btn btn-outline-secondary btn-sm new-question-btn" data-pageid="{{pageid}}">
+                    <button type="button" class="btn btn-sm new-question-btn new-question-action-btn" data-pageid="{{pageid}}">
+                        <i class="fa fa-plus-circle mr-1" aria-hidden="true"></i>
                         {{#str}}newquestion, mod_harpiasurvey{{/str}}
                     </button>
                 </div>

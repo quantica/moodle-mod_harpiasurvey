@@ -47,6 +47,40 @@ const ensureEditButton = (questionItem) => {
     button.show();
 };
 
+const resetQuestionItemToNeutral = (questionItem) => {
+    if (!questionItem || questionItem.length === 0) {
+        return;
+    }
+
+    questionItem.removeAttr('data-response-locked');
+    questionItem.removeAttr('data-response-editing');
+    questionItem.find('.saved-response-message').remove();
+    questionItem.find('.answer-history').remove();
+    questionItem.find('.question-edit-controls').remove();
+
+    questionItem.find('input, select, textarea').prop('disabled', false);
+
+    questionItem.find('input[type="radio"], input[type="checkbox"]').each(function() {
+        $(this).prop('checked', Boolean(this.defaultChecked));
+    });
+
+    questionItem.find('select').each(function() {
+        const select = $(this);
+        const defaultOption = select.find('option').filter(function() {
+            return this.defaultSelected;
+        }).first();
+        if (defaultOption.length > 0) {
+            select.val(defaultOption.val());
+        } else {
+            select.prop('selectedIndex', 0);
+        }
+    });
+
+    questionItem.find('input[type="number"], input[type="text"], textarea').each(function() {
+        $(this).val(this.defaultValue || '');
+    });
+};
+
 /**
  * Initialize turns-mode chat for all containers on the page.
  */
@@ -88,6 +122,7 @@ const initialize = () => {
 
         const urlParams = new URLSearchParams(window.location.search);
         const urlTurn = urlParams.get('turn');
+        const urlBranch = urlParams.get('branch');
 
         let initialViewingTurn = currentTurns[pageid];
         if (urlTurn !== null && urlTurn !== '') {
@@ -97,12 +132,20 @@ const initialize = () => {
             }
         }
 
+        const sidebar = $(`#conversation-tree-sidebar-${pageid}`);
+        if (sidebar.length > 0 && urlBranch !== null && urlBranch !== '') {
+            const parsedBranchRoot = parseInt(urlBranch, 10);
+            if (!isNaN(parsedBranchRoot) && parsedBranchRoot > 0) {
+                sidebar.data('sidebar-view', 'detail');
+                sidebar.data('branch-root', parsedBranchRoot);
+            }
+        }
+
         setViewingTurn(pageid, initialViewingTurn);
         updateTurnDisplay(pageid);
         updateChatLockState(pageid);
         
         // Load conversation tree first, then filter messages (tree is needed to determine pathway).
-        const sidebar = $(`#conversation-tree-sidebar-${pageid}`);
         if (sidebar.length > 0) {
             sidebar.show();
             $(`.toggle-tree-btn[data-pageid="${pageid}"]`).addClass('active');
@@ -347,6 +390,7 @@ function registerTreeHandlers() {
         sidebar.data('sidebar-view', 'list'); // Set to list view
         sidebar.data('branch-root', null);
         sidebar.data('branch-stack', []);
+        syncTurnsUrlState(pageid);
 
         const tree = conversationTrees[pageid];
         if (tree) {
@@ -376,6 +420,7 @@ function registerTreeHandlers() {
         sidebar.data('branch-stack', stack);
         sidebar.data('branch-root', previousRoot || null);
         sidebar.data('sidebar-view', 'detail');
+        syncTurnsUrlState(pageid);
         loadConversationTree(pageid);
     });
 
@@ -749,6 +794,35 @@ const getViewingTurn = (pageid) => {
 };
 
 /**
+ * Sync turns URL state (turn + branch root when applicable).
+ *
+ * @param {number} pageid Page ID
+ * @param {number|null} turnOverride Turn to persist (defaults to current viewing turn)
+ */
+const syncTurnsUrlState = (pageid, turnOverride = null) => {
+    const turn = turnOverride !== null ? parseInt(turnOverride, 10) : getViewingTurn(pageid);
+    if (!turn || isNaN(turn)) {
+        return;
+    }
+
+    const sidebar = $(`#conversation-tree-sidebar-${pageid}`);
+    const branchRoot = parseInt(sidebar.data('branch-root'), 10);
+    const viewMode = sidebar.data('sidebar-view');
+
+    const urlParams = new URLSearchParams(window.location.search);
+    urlParams.set('turn', turn);
+
+    if (viewMode && viewMode !== 'list' && branchRoot && !isNaN(branchRoot)) {
+        urlParams.set('branch', branchRoot);
+    } else {
+        urlParams.delete('branch');
+    }
+
+    const newUrl = window.location.pathname + '?' + urlParams.toString();
+    window.history.replaceState({}, '', newUrl);
+};
+
+/**
  * Set the viewing turn (and update URL param).
  *
  * @param {number} pageid Page ID
@@ -758,6 +832,7 @@ const setViewingTurn = (pageid, turn) => {
     const container = $(`#chat-messages-page-${pageid}`).closest('.ai-conversation-container');
     container.data('viewing-turn', turn);
     container.attr('data-viewing-turn', turn);
+    syncTurnsUrlState(pageid, turn);
 };
 
 /**
@@ -1327,6 +1402,9 @@ const loadTurnEvaluationResponses = (pageid, turnId) => {
     if (container.length === 0) {
         container = containerWrapper;
     }
+    container.find('.question-item').each(function() {
+        resetQuestionItemToNeutral($(this));
+    });
 
     const params = new URLSearchParams({
         action: 'get_turn_responses',
@@ -1349,7 +1427,7 @@ const loadTurnEvaluationResponses = (pageid, turnId) => {
         return response.json();
     })
     .then(data => {
-        if (!data.success || !data.responses) {
+        if (!data.success || !data.responses || Object.keys(data.responses).length === 0) {
             return;
         }
         Object.keys(data.responses).forEach((questionId) => {
@@ -1443,7 +1521,17 @@ const loadTurnEvaluationResponses = (pageid, turnId) => {
  * @param {number} turnId Turn ID
  */
 const clearTurnEvaluationForm = (pageid, turnId) => {
-    // Placeholder for clearing any form state if needed.
+    const containerWrapper = $(`#turn-evaluation-questions-container-${pageid}`);
+    if (containerWrapper.length === 0) {
+        return;
+    }
+    let container = containerWrapper.find(`.turn-evaluation-questions[data-turn-id="${turnId}"]`);
+    if (container.length === 0) {
+        container = containerWrapper;
+    }
+    container.find('.question-item').each(function() {
+        resetQuestionItemToNeutral($(this));
+    });
 };
 
 const hasUnsavedTurnEvaluation = (pageid, turnId) => {
@@ -1506,6 +1594,7 @@ const navigateToTurn = (pageid, turnId, setAsCurrent = false) => {
     filterMessagesByTurn(pageid, turnId);
     updateSubpageVisibility(pageid);
     ensureTurnEvaluationQuestionsRendered(pageid, turnId).then(() => {
+        clearTurnEvaluationForm(pageid, turnId);
         loadTurnEvaluationResponses(pageid, turnId);
     });
     const sidebar = $(`#conversation-tree-sidebar-${pageid}`);
@@ -1668,6 +1757,7 @@ const loadConversationTree = (pageid) => {
                     renderConversationList(pageid, data.tree.roots);
                 }
             }
+            syncTurnsUrlState(pageid, viewingTurn);
 
             // Re-filter messages now that we have the tree, so previous-turn messages are correctly
             // marked and hidden by default, with the toggle controlling them.
@@ -1774,12 +1864,13 @@ const getTurnNumberForId = (pageid, turnId) => {
 /**
  * Prepare node data for recursive rendering.
  */
-const prepareNodeData = (node, level, currentTurnId, pageid, cmid, turnIndex = 0, parentNumber = null, includeChildren = true) => {
+const prepareNodeData = (node, level, currentTurnId, pageid, cmid, turnIndex = 0, parentNumber = null,
+    includeChildren = true, forcedTurnNumber = null) => {
     const isCurrent = parseInt(node.turn_id, 10) === parseInt(currentTurnId, 10);
     const hasChildren = node.children && node.children.length > 0;
     const isDirectBranch = node.is_direct_branch || false;
     const isRoot = node.is_root || false;
-    const turnNumber = calculateTurnNumber(node, turnIndex, parentNumber);
+    const turnNumber = forcedTurnNumber !== null ? String(forcedTurnNumber) : calculateTurnNumber(node, turnIndex, parentNumber);
 
     return {
         turn_id: node.turn_id,
@@ -1820,7 +1911,8 @@ const renderConversationDetail = (pageid, root) => {
     // Calculate turn numbers: root is 1, then direct branches are 2, 3, 4...
     // All turns at root level (root + direct branches) are numbered sequentially.
     let turnCounter = 0; // Will be incremented to 1 for root, 2 for first direct branch, etc.
-    const rootNodeData = prepareNodeData(root, 0, viewingTurn, pageid, cmid, turnCounter, null, false);
+    const rootTurnNumber = getTurnNumberForId(pageid, root.turn_id) || '1';
+    const rootNodeData = prepareNodeData(root, 0, viewingTurn, pageid, cmid, turnCounter, null, false, rootTurnNumber);
     turnCounter++;
 
     // Find direct branches of this root (branches where parent is this root).
@@ -1832,9 +1924,21 @@ const renderConversationDetail = (pageid, root) => {
             parseInt(a.turn_id, 10) - parseInt(b.turn_id, 10)
         );
         sortedDirectBranches.forEach((node) => {
+            const childTurnNumber = getTurnNumberForId(pageid, node.turn_id) ||
+                calculateTurnNumber(node, turnCounter, null);
             // Direct branches continue sequential numbering: 2, 3, 4...
             // Level 1 so they render visually indented under the root they forked from.
-            directBranches.push(prepareNodeData(node, 0, viewingTurn, pageid, cmid, turnCounter, null, false));
+            directBranches.push(prepareNodeData(
+                node,
+                0,
+                viewingTurn,
+                pageid,
+                cmid,
+                turnCounter,
+                null,
+                false,
+                childTurnNumber
+            ));
             turnCounter++;
         });
     }
