@@ -43,14 +43,21 @@ class stats_table implements renderable, templatable {
     public $context;
 
     /**
+     * @var string Pagination HTML
+     */
+    public $paginationhtml;
+
+    /**
      * Class constructor.
      *
      * @param array $responses
      * @param object $context
+     * @param string $paginationhtml
      */
-    public function __construct($responses, $context) {
+    public function __construct($responses, $context, $paginationhtml = '') {
         $this->responses = $responses;
         $this->context = $context;
+        $this->paginationhtml = $paginationhtml;
     }
 
     /**
@@ -82,7 +89,8 @@ class stats_table implements renderable, templatable {
             'editedlabel' => get_string('edited', 'mod_harpiasurvey'),
             'downloadurl' => $downloadurl->out(false),
             'wwwroot' => $CFG->wwwroot,
+            'paginationhtml' => $this->paginationhtml,
+            'has_pagination' => !empty($this->paginationhtml),
         ];
     }
 }
-

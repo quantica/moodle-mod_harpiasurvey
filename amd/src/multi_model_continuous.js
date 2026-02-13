@@ -3,6 +3,7 @@ import {
     Templates,
     Notification,
     Config,
+    getString,
     $,
     addError,
     conversationTrees
@@ -11,6 +12,169 @@ import {
 let initialized = false;
 let handlersRegistered = false;
 let treeHandlersRegistered = false;
+let editLabel = 'Edit';
+
+const lockQuestionItem = (questionItem) => {
+    questionItem.attr('data-response-locked', '1');
+    questionItem.removeAttr('data-response-editing');
+    questionItem.find('input, select, textarea').prop('disabled', true);
+};
+
+const ensureEditButton = (questionItem) => {
+    let controls = questionItem.find('.question-edit-controls');
+    if (controls.length === 0) {
+        controls = $('<div class="mt-2 question-edit-controls"></div>');
+        questionItem.append(controls);
+    }
+    let button = controls.find('.question-edit-btn');
+    if (button.length === 0) {
+        button = $('<button type="button" class="btn btn-sm btn-outline-secondary question-edit-btn"></button>');
+        controls.append(button);
+    }
+    button.text(editLabel);
+    button.show();
+};
+
+const clearEvaluationQuestion = (questionItem) => {
+    questionItem.removeAttr('data-response-locked');
+    questionItem.removeAttr('data-response-editing');
+    questionItem.find('.saved-response-message').remove();
+    questionItem.find('.answer-history').remove();
+    questionItem.find('.question-edit-controls').remove();
+
+    const questionType = questionItem.data('questiontype');
+    if (questionType === 'singlechoice' || questionType === 'likert') {
+        questionItem.find('input[type="radio"]').prop('checked', false);
+    } else if (questionType === 'multiplechoice') {
+        questionItem.find('input[type="checkbox"]').prop('checked', false);
+    } else if (questionType === 'select') {
+        questionItem.find('select').prop('selectedIndex', 0);
+    } else if (questionType === 'number' || questionType === 'shorttext') {
+        questionItem.find('input[type="number"], input[type="text"]').val('');
+    } else if (questionType === 'longtext') {
+        questionItem.find('textarea').val('');
+    }
+    questionItem.find('input, select, textarea').prop('disabled', false);
+};
+
+const loadConversationEvaluationResponsesForModel = (pageid, modelid, conversationId) => {
+    const container = $(`.multi-model-chat-container[data-pageid="${pageid}"]`);
+    const cmid = parseInt(container.attr('data-cmid') || container.data('cmid'), 10);
+    if (!cmid) {
+        return;
+    }
+    const pane = $(`#model-pane-${modelid}-${pageid}`);
+    if (pane.length === 0) {
+        return;
+    }
+    const evaluationContainer = pane.find('.page-questions');
+    if (evaluationContainer.length === 0) {
+        return;
+    }
+
+    const questionItems = evaluationContainer.find('.question-item[data-questionid]');
+    questionItems.each(function() {
+        clearEvaluationQuestion($(this));
+    });
+
+    if (!conversationId) {
+        return;
+    }
+
+    const params = new URLSearchParams({
+        action: 'get_turn_responses',
+        cmid: cmid,
+        pageid: pageid,
+        turn_id: conversationId,
+        sesskey: Config.sesskey
+    });
+
+    fetch(Config.wwwroot + '/mod/harpiasurvey/ajax.php?' + params.toString(), {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then((response) => {
+        if (!response.ok) {
+            throw new Error('HTTP error! status: ' + response.status);
+        }
+        return response.json();
+    })
+    .then((data) => {
+        if (!data.success || !data.responses) {
+            return;
+        }
+
+        Object.keys(data.responses).forEach((questionId) => {
+            const responseData = data.responses[questionId];
+            const questionItem = evaluationContainer.find(`.question-item[data-questionid="${questionId}"]`);
+            if (questionItem.length === 0) {
+                return;
+            }
+
+            const questionType = questionItem.data('questiontype');
+            const value = responseData.response;
+
+            if (questionType === 'singlechoice' || questionType === 'likert') {
+                questionItem.find('input[type="radio"]').prop('checked', false);
+                questionItem.find(`input[type="radio"][value="${value}"]`).prop('checked', true);
+            } else if (questionType === 'multiplechoice') {
+                questionItem.find('input[type="checkbox"]').prop('checked', false);
+                try {
+                    const values = JSON.parse(value);
+                    if (Array.isArray(values)) {
+                        values.forEach((val) => {
+                            questionItem.find(`input[type="checkbox"][value="${val}"]`).prop('checked', true);
+                        });
+                    }
+                } catch (e) {
+                    // ignore invalid JSON
+                }
+            } else if (questionType === 'select') {
+                questionItem.find('select').val(value);
+            } else if (questionType === 'number') {
+                questionItem.find('input[type="number"]').val(value);
+            } else if (questionType === 'shorttext') {
+                questionItem.find('input[type="text"]').val(value);
+            } else if (questionType === 'longtext') {
+                questionItem.find('textarea').val(value);
+            }
+
+            if (responseData.saved_datetime) {
+                getString('saved', 'mod_harpiasurvey').then((savedText) => {
+                    getString('on', 'mod_harpiasurvey').then((onText) => {
+                        const icon = '<i class="fa fa-check-circle" aria-hidden="true"></i>';
+                        questionItem.append(
+                            '<div class="mt-2 small text-muted saved-response-message">' +
+                            `${icon} ${savedText} ${onText} ${responseData.saved_datetime}</div>`
+                        );
+                    });
+                });
+            }
+
+            getString('answerhistory', 'mod_harpiasurvey').then((historyText) => {
+                if ((responseData.history_count || 0) > 1) {
+                    const details = $('<details class="answer-history mt-1"></details>');
+                    details.append(`<summary>${historyText} (${responseData.history_count})</summary>`);
+                    const list = $('<ul class="list-unstyled mt-2 mb-0"></ul>');
+                    (responseData.history_items || []).forEach((item) => {
+                        list.append(`<li class="mb-1"><span class="text-muted">${item.time}</span> — ${item.response}</li>`);
+                    });
+                    details.append(list);
+                    questionItem.append(details);
+                }
+            });
+
+            lockQuestionItem(questionItem);
+            ensureEditButton(questionItem);
+        });
+    })
+    .catch((error) => {
+        // eslint-disable-next-line no-console
+        console.error('Error loading multi-model continuous evaluation responses:', error);
+    });
+};
 
 export const init = () => initialize();
 
@@ -43,6 +207,11 @@ const initialize = () => {
     if (initialized) {
         return;
     }
+    getString('edit', 'moodle').then((str) => {
+        editLabel = str;
+    }).catch(() => {
+        editLabel = 'Edit';
+    });
     // Register handlers first, before initializing pages
     registerHandlers();
     registerTreeHandlers();
@@ -147,12 +316,11 @@ const initMultiModelPage = (pageid) => {
         loadConversationTreeForMultiModel(pageid).then(() => {
             const selectedConversation = container.data('viewing-conversation') ||
                 parseInt(container.attr('data-viewing-conversation'), 10);
-            if (selectedConversation) {
-                tabPanes.each(function() {
-                    const modelId = parseInt($(this).data('model-id'), 10);
-                    filterMessagesByConversationForModel(pageid, modelId, selectedConversation);
-                });
-            }
+            tabPanes.each(function() {
+                const modelId = parseInt($(this).data('model-id'), 10);
+                filterMessagesByConversationForModel(pageid, modelId, selectedConversation);
+                loadConversationEvaluationResponsesForModel(pageid, modelId, selectedConversation || null);
+            });
         });
     }
 };
@@ -333,6 +501,10 @@ const sendMessage = (cmid, pageid, message, modelid, button, input, loading) => 
                 container.data('viewing-conversation', data.root_conversation_id);
                 container.attr('data-viewing-conversation', data.root_conversation_id);
                 container.data(`viewing-conversation-${modelid}`, data.root_conversation_id);
+                container.find('.tab-pane[data-model-id]').each(function() {
+                    const targetModelId = parseInt($(this).data('model-id'), 10);
+                    loadConversationEvaluationResponsesForModel(pageid, targetModelId, data.root_conversation_id);
+                });
             }
             if (data.messageid && data.content) {
                 displayAIMessage(pageid, modelid, data.content, data.messageid, data.turn_id).then(() => {
@@ -602,6 +774,7 @@ const navigateToConversation = (pageid, conversationId) => {
     tabPanes.each(function() {
         const modelId = parseInt($(this).data('model-id'), 10);
         filterMessagesByConversationForModel(pageid, modelId, conversationId);
+        loadConversationEvaluationResponsesForModel(pageid, modelId, conversationId);
     });
     
     // Reload tree to update active state highlighting
@@ -736,6 +909,7 @@ const createNewRoot = (cmid, pageid) => {
                         } else {
                             placeholder.show();
                         }
+                        loadConversationEvaluationResponsesForModel(pageid, modelId, data.root_id || null);
                     });
                     // Navigate to the new conversation
                     navigateToConversation(pageid, data.root_id);

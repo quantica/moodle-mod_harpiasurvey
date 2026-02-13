@@ -3,6 +3,7 @@ import {
     Templates,
     Notification,
     Config,
+    getString,
     $,
     conversationTrees,
     scrollToBottom,
@@ -13,6 +14,169 @@ import {
 let initialized = false;
 let commonHandlersRegistered = false;
 let treeHandlersRegistered = false;
+let editLabel = 'Edit';
+
+const lockQuestionItem = (questionItem) => {
+    questionItem.attr('data-response-locked', '1');
+    questionItem.removeAttr('data-response-editing');
+    questionItem.find('input, select, textarea').prop('disabled', true);
+};
+
+const ensureEditButton = (questionItem) => {
+    let controls = questionItem.find('.question-edit-controls');
+    if (controls.length === 0) {
+        controls = $('<div class="mt-2 question-edit-controls"></div>');
+        questionItem.append(controls);
+    }
+    let button = controls.find('.question-edit-btn');
+    if (button.length === 0) {
+        button = $('<button type="button" class="btn btn-sm btn-outline-secondary question-edit-btn"></button>');
+        controls.append(button);
+    }
+    button.text(editLabel);
+    button.show();
+};
+
+const clearEvaluationQuestion = (questionItem) => {
+    questionItem.removeAttr('data-response-locked');
+    questionItem.removeAttr('data-response-editing');
+    questionItem.find('.saved-response-message').remove();
+    questionItem.find('.answer-history').remove();
+    questionItem.find('.question-edit-controls').remove();
+
+    const questionType = questionItem.data('questiontype');
+    if (questionType === 'singlechoice' || questionType === 'likert') {
+        questionItem.find('input[type="radio"]').prop('checked', false);
+    } else if (questionType === 'multiplechoice') {
+        questionItem.find('input[type="checkbox"]').prop('checked', false);
+    } else if (questionType === 'select') {
+        questionItem.find('select').prop('selectedIndex', 0);
+    } else if (questionType === 'number' || questionType === 'shorttext') {
+        questionItem.find('input[type="number"], input[type="text"]').val('');
+    } else if (questionType === 'longtext') {
+        questionItem.find('textarea').val('');
+    }
+    questionItem.find('input, select, textarea').prop('disabled', false);
+};
+
+const loadConversationEvaluationResponses = (pageid, conversationId) => {
+    const cmid = getCmid(pageid);
+    if (!cmid) {
+        return;
+    }
+    let evaluationContainer = $(
+        `.save-all-responses-btn[data-pageid="${pageid}"]`
+    ).first().closest('.page-questions');
+    if (evaluationContainer.length === 0) {
+        evaluationContainer = $(`.page-questions`).first();
+    }
+    if (evaluationContainer.length === 0) {
+        return;
+    }
+
+    const questionItems = evaluationContainer.find('.question-item[data-questionid]');
+    questionItems.each(function() {
+        clearEvaluationQuestion($(this));
+    });
+
+    if (!conversationId) {
+        return;
+    }
+
+    const params = new URLSearchParams({
+        action: 'get_turn_responses',
+        cmid: cmid,
+        pageid: pageid,
+        turn_id: conversationId,
+        sesskey: Config.sesskey
+    });
+
+    fetch(Config.wwwroot + '/mod/harpiasurvey/ajax.php?' + params.toString(), {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then((response) => {
+        if (!response.ok) {
+            throw new Error('HTTP error! status: ' + response.status);
+        }
+        return response.json();
+    })
+    .then((data) => {
+        if (!data.success || !data.responses) {
+            return;
+        }
+
+        Object.keys(data.responses).forEach((questionId) => {
+            const responseData = data.responses[questionId];
+            const questionItem = evaluationContainer.find(`.question-item[data-questionid="${questionId}"]`);
+            if (questionItem.length === 0) {
+                return;
+            }
+
+            const questionType = questionItem.data('questiontype');
+            const value = responseData.response;
+
+            if (questionType === 'singlechoice' || questionType === 'likert') {
+                questionItem.find('input[type="radio"]').prop('checked', false);
+                questionItem.find(`input[type="radio"][value="${value}"]`).prop('checked', true);
+            } else if (questionType === 'multiplechoice') {
+                questionItem.find('input[type="checkbox"]').prop('checked', false);
+                try {
+                    const values = JSON.parse(value);
+                    if (Array.isArray(values)) {
+                        values.forEach((val) => {
+                            questionItem.find(`input[type="checkbox"][value="${val}"]`).prop('checked', true);
+                        });
+                    }
+                } catch (e) {
+                    // ignore invalid JSON
+                }
+            } else if (questionType === 'select') {
+                questionItem.find('select').val(value);
+            } else if (questionType === 'number') {
+                questionItem.find('input[type="number"]').val(value);
+            } else if (questionType === 'shorttext') {
+                questionItem.find('input[type="text"]').val(value);
+            } else if (questionType === 'longtext') {
+                questionItem.find('textarea').val(value);
+            }
+
+            if (responseData.saved_datetime) {
+                getString('saved', 'mod_harpiasurvey').then((savedText) => {
+                    getString('on', 'mod_harpiasurvey').then((onText) => {
+                        const icon = '<i class="fa fa-check-circle" aria-hidden="true"></i>';
+                        questionItem.append(
+                            '<div class="mt-2 small text-muted saved-response-message">' +
+                            `${icon} ${savedText} ${onText} ${responseData.saved_datetime}</div>`
+                        );
+                    });
+                });
+            }
+
+            getString('answerhistory', 'mod_harpiasurvey').then((historyText) => {
+                if ((responseData.history_count || 0) > 1) {
+                    const details = $('<details class="answer-history mt-1"></details>');
+                    details.append(`<summary>${historyText} (${responseData.history_count})</summary>`);
+                    const list = $('<ul class="list-unstyled mt-2 mb-0"></ul>');
+                    (responseData.history_items || []).forEach((item) => {
+                        list.append(`<li class="mb-1"><span class="text-muted">${item.time}</span> — ${item.response}</li>`);
+                    });
+                    details.append(list);
+                    questionItem.append(details);
+                }
+            });
+
+            lockQuestionItem(questionItem);
+            ensureEditButton(questionItem);
+        });
+    })
+    .catch((error) => {
+        // eslint-disable-next-line no-console
+        console.error('Error loading continuous evaluation responses:', error);
+    });
+};
 
 export const init = () => initialize();
 
@@ -23,6 +187,11 @@ const initialize = () => {
     if (initialized) {
         return;
     }
+    getString('edit', 'moodle').then((str) => {
+        editLabel = str;
+    }).catch(() => {
+        editLabel = 'Edit';
+    });
     const containers = $('.ai-conversation-container[data-behavior="continuous"]');
     if (containers.length === 0) {
         return;
@@ -76,8 +245,12 @@ const initContinuousPage = (pageid) => {
                 container.data('viewing-conversation', rootId);
                 container.attr('data-viewing-conversation', rootId);
                 filterMessagesByConversation(pageid, rootId);
+                loadConversationEvaluationResponses(pageid, rootId);
             }
         }
+    }
+    if (!allMessages.length) {
+        loadConversationEvaluationResponses(pageid, null);
     }
     const sidebar = $(`#conversation-tree-sidebar-${pageid}`);
     if (sidebar.length > 0) {
@@ -374,6 +547,7 @@ const sendMessage = (cmid, pageid, message, modelid, button, input, loading) => 
             if (data.root_conversation_id) {
                 container.data('viewing-conversation', data.root_conversation_id);
                 container.attr('data-viewing-conversation', data.root_conversation_id);
+                loadConversationEvaluationResponses(pageid, data.root_conversation_id);
             }
             if (data.messageid && data.content) {
                 displayAIMessage(pageid, data.content, data.messageid, data.turn_id).then(() => {
@@ -543,6 +717,7 @@ const navigateToConversation = (pageid, conversationId) => {
     container.data('viewing-conversation', conversationId);
     container.attr('data-viewing-conversation', conversationId);
     filterMessagesByConversation(pageid, conversationId);
+    loadConversationEvaluationResponses(pageid, conversationId);
     const sidebar = $(`#conversation-tree-sidebar-${pageid}`);
     if (sidebar.length) {
         sidebar.data('sidebar-view', 'list');
@@ -599,6 +774,7 @@ const createNewRoot = (cmid, pageid) => {
             const newConversationId = parseInt(data.new_conversation_id || data.new_turn_id, 10);
             container.data('viewing-conversation', newConversationId);
             container.attr('data-viewing-conversation', newConversationId);
+            loadConversationEvaluationResponses(pageid, newConversationId);
             messagesContainer.html('<div class="text-muted text-center small py-3">' +
                 'New conversation started. Send a message to begin.</div>');
             const sidebar = $(`#conversation-tree-sidebar-${pageid}`);

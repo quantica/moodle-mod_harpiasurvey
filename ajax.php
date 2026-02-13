@@ -920,6 +920,14 @@ switch ($action) {
         $usermessage->turn_id = $turn_id;
         $usermessage->timecreated = time();
         $usermessageid = $DB->insert_record('harpiasurvey_conversations', $usermessage);
+
+        // In Q&A mode, each question/answer pair must have its own evaluation scope.
+        // Use the root user message id as the pair identifier and persist it as turn_id
+        // on both user and assistant messages.
+        if ($behavior === 'qa') {
+            $turn_id = (int)$usermessageid;
+            $DB->set_field('harpiasurvey_conversations', 'turn_id', $turn_id, ['id' => $usermessageid]);
+        }
         
         // Get conversation history for context (if chat mode).
         $history = [];

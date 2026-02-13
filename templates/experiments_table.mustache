@@ -43,13 +43,13 @@
                         <td>{{maxparticipants}}</td>
                         <td>{{status}}</td>
                         <td>
-                            {{#editingmode}}
-                                {{#canmanage}}
-                                    <a href="{{statsurl}}" title="{{#str}}viewstats, mod_harpiasurvey{{/str}}" data-testid="harpiasurvey-stats-experiment-{{id}}">{{{statsicon}}}</a>
+                            {{#canmanage}}
+                                <a href="{{statsurl}}" title="{{#str}}viewstats, mod_harpiasurvey{{/str}}" data-testid="harpiasurvey-stats-experiment-{{id}}">{{{statsicon}}}</a>
+                                {{#editingmode}}
                                     <a href="{{editurl}}" title="{{#str}}edit, moodle{{/str}}" data-testid="harpiasurvey-edit-experiment-{{id}}">{{{editicon}}}</a>
                                     <a href="{{deleteurl}}" title="{{#str}}delete, moodle{{/str}}" data-testid="harpiasurvey-delete-experiment-{{id}}">{{{deleteicon}}}</a>
-                                {{/canmanage}}
-                            {{/editingmode}}
+                                {{/editingmode}}
+                            {{/canmanage}}
                         </td>
                     </tr>
                 {{/experiments}}

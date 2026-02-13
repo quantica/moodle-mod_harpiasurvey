@@ -32,6 +32,14 @@ $context = $cm->context;
 
 // Check for CSV download.
 $download = optional_param('download', '', PARAM_ALPHA);
+$pageparam = optional_param('page', 0, PARAM_INT);
+$perpage = optional_param('perpage', 50, PARAM_INT);
+if ($pageparam < 0) {
+    $pageparam = 0;
+}
+if ($perpage <= 0) {
+    $perpage = 50;
+}
 
 // Set up page (only if not downloading).
 if ($download !== 'csv') {
@@ -336,8 +344,19 @@ foreach ($evaluationmeta as $key => $meta) {
     if ($conversationtypelabel !== '') {
         $conversationtypelabel = html_entity_decode($conversationtypelabel, ENT_QUOTES, 'UTF-8');
     }
+    $evaluatesconversationlabel = '';
+    if (!empty($meta['evaluation_id'])) {
+        if ($meta['conversationtype'] === 'turns') {
+            $evaluatesconversationlabel = get_string('turn', 'mod_harpiasurvey') . ' #' . $meta['evaluation_id'];
+        } else if ($meta['conversationtype'] === 'qa') {
+            $evaluatesconversationlabel = get_string('question', 'mod_harpiasurvey') . ' #' . $meta['evaluation_id'];
+        } else {
+            $evaluatesconversationlabel = get_string('conversation', 'mod_harpiasurvey') . ' #' . $meta['evaluation_id'];
+        }
+    }
     $evaluationmeta[$key]['modelnamesstr'] = implode(', ', $modelnames);
     $evaluationmeta[$key]['conversationtypelabel'] = $conversationtypelabel;
+    $evaluationmeta[$key]['evaluatesconversation'] = $evaluatesconversationlabel;
     $evaluationmeta[$key]['timecreated_str'] = userdate($meta['timecreated'], get_string('strftimedatetimeshort', 'langconfig'));
     $evaluationmeta[$key]['timelast_str'] = userdate($meta['timelast'], get_string('strftimedatetimeshort', 'langconfig'));
     $evaluationmeta[$key]['preview'] = htmlspecialchars(strip_tags($meta['preview']), ENT_QUOTES, 'UTF-8');
@@ -585,7 +604,21 @@ foreach ($responses as $response) {
     // For aichat pages, all questions evaluate the page's chat conversation.
     // We can identify this by checking if the page type is 'aichat'.
     $is_aichat_page = ($response->pagetype === 'aichat');
-    $evaluatesconversation = $is_aichat_page ? get_string('pagechatevaluation', 'mod_harpiasurvey') : '';
+    $evaluatesconversation = '';
+    if ($is_aichat_page) {
+        $evaluationid = $response->turn_id ?? null;
+        if (!empty($evaluationid)) {
+            if (($response->pagebehavior ?? '') === 'turns') {
+                $evaluatesconversation = get_string('turn', 'mod_harpiasurvey') . ' #' . $evaluationid;
+            } else if (($response->pagebehavior ?? '') === 'qa') {
+                $evaluatesconversation = get_string('question', 'mod_harpiasurvey') . ' #' . $evaluationid;
+            } else {
+                $evaluatesconversation = get_string('conversation', 'mod_harpiasurvey') . ' #' . $evaluationid;
+            }
+        } else {
+            $evaluatesconversation = get_string('pagechatevaluation', 'mod_harpiasurvey');
+        }
+    }
     
     // Format timestamps
     $timecreatedstr = userdate($response->timecreated, get_string('strftimedatetimeshort', 'langconfig'));
@@ -653,11 +686,11 @@ foreach ($grouped as $key => $items) {
 }
 
 usort($entries, function($a, $b) {
-    $userCmp = strcmp($a['sort_user'], $b['sort_user']);
-    if ($userCmp !== 0) {
-        return $userCmp;
+    $timeCmp = ($a['sort_time'] ?? 0) <=> ($b['sort_time'] ?? 0);
+    if ($timeCmp !== 0) {
+        return $timeCmp;
     }
-    return $a['sort_time'] <=> $b['sort_time'];
+    return strcmp($a['sort_user'] ?? '', $b['sort_user'] ?? '');
 });
 
 foreach ($entries as $entry) {
@@ -677,6 +710,7 @@ foreach ($entries as $entry) {
         'questiontype' => $meta['conversationtypelabel'] ?? '',
         'conversationtypelabel' => $meta['conversationtypelabel'] ?? '',
         'modelnamesstr' => $meta['modelnamesstr'] ?? '',
+        'evaluatesconversation' => $meta['evaluatesconversation'] ?? '',
         'turn_id' => $meta['evaluation_id'] ?? '',
         'preview' => $meta['preview'] ?? '',
         'messagecount' => $meta['messagecount'] ?? 0,
@@ -824,9 +858,29 @@ if ($download === 'csv') {
     exit;
 }
 
+// Apply pagination to on-screen table (CSV still exports full data).
+$totalcount = count($displaylist);
+$start = $pageparam * $perpage;
+if ($start >= $totalcount && $totalcount > 0) {
+    $pageparam = (int)floor(($totalcount - 1) / $perpage);
+    $start = $pageparam * $perpage;
+}
+$pageddisplaylist = array_slice($displaylist, $start, $perpage);
+
+$pagingurl = new moodle_url('/mod/harpiasurvey/stats.php', [
+    'id' => $cm->id,
+    'experiment' => $experiment->id,
+    'perpage' => $perpage
+]);
+$paginationhtml = '';
+if ($totalcount > $perpage) {
+    $pagingbar = new paging_bar($totalcount, $pageparam, $perpage, $pagingurl);
+    $paginationhtml = $OUTPUT->render($pagingbar);
+}
+
 // Create and render stats table.
 require_once(__DIR__.'/classes/output/stats_table.php');
-$statstable = new \mod_harpiasurvey\output\stats_table($displaylist, $context);
+$statstable = new \mod_harpiasurvey\output\stats_table($pageddisplaylist, $context, $paginationhtml);
 $renderer = $PAGE->get_renderer('mod_harpiasurvey');
 $tablehtml = $renderer->render_stats_table($statstable);
 

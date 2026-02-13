@@ -199,7 +199,9 @@ export const init = () => {
                 selected.each(function() {
                     values.push($(this).val());
                 });
-                response = JSON.stringify(values);
+                if (values.length > 0) {
+                    response = JSON.stringify(values);
+                }
             } else if (questiontype === 'select') {
                 const selected = questionItem.find('select').val();
                 if (selected) {
@@ -207,10 +209,21 @@ export const init = () => {
                 }
             } else if (questiontype === 'number' || questiontype === 'shorttext') {
                 const input = questionItem.find('input[type="number"], input[type="text"]');
-                response = input.val();
+                const value = input.val();
+                if (value !== null && value !== undefined && String(value).trim() !== '') {
+                    response = value;
+                }
             } else if (questiontype === 'longtext') {
                 const textarea = questionItem.find('textarea');
-                response = textarea.val();
+                const value = textarea.val();
+                if (value !== null && value !== undefined && String(value).trim() !== '') {
+                    response = value;
+                }
+            }
+
+            // Skip unanswered questions entirely.
+            if (response === '' || response === null || response === undefined) {
+                return;
             }
 
             questionsToSave.push({
@@ -252,7 +265,10 @@ const saveAllResponses = (cmid, pageid, questionsToSave, button, statusDiv) => {
 
     // Check if this is a turns/continuous mode page and get current iteration.
     // The button might be outside the ai-conversation-container, so search from document.
-    const container = $('.ai-conversation-container[data-pageid="' + pageid + '"]');
+    const container = $(
+        '.ai-conversation-container[data-pageid="' + pageid + '"], ' +
+        '.multi-model-chat-container[data-pageid="' + pageid + '"]'
+    ).first();
     let turnId = null;
     if (container.length > 0) {
         const behavior = container.data('behavior');
