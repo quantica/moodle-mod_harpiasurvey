@@ -46,6 +46,67 @@ function harpiasurvey_supports($feature) {
 }
 
 /**
+ * File serving callback for mod_harpiasurvey editor content.
+ *
+ * @param stdClass $course Course object
+ * @param cm_info|stdClass $cm Course module
+ * @param context $context Context
+ * @param string $filearea File area
+ * @param array $args Remaining file path args
+ * @param bool $forcedownload Force download
+ * @param array $options Additional options
+ * @return bool
+ */
+function harpiasurvey_pluginfile($course, $cm, $context, $filearea, $args, $forcedownload, array $options = []) {
+    global $DB;
+
+    if ($context->contextlevel !== CONTEXT_MODULE) {
+        return false;
+    }
+
+    require_login($course, true, $cm);
+
+    if (!in_array($filearea, ['page', 'reviewcsv'], true)) {
+        return false;
+    }
+
+    if (empty($args)) {
+        return false;
+    }
+
+    $itemid = (int)array_shift($args);
+    if ($itemid <= 0) {
+        return false;
+    }
+
+    if ($filearea === 'page' || $filearea === 'reviewcsv') {
+        // Ensure the page belongs to this activity instance.
+        $sql = "SELECT p.id
+                  FROM {harpiasurvey_pages} p
+                  JOIN {harpiasurvey_experiments} e ON e.id = p.experimentid
+                 WHERE p.id = :pageid AND e.harpiasurveyid = :harpiasurveyid";
+        $pageok = $DB->record_exists_sql($sql, [
+            'pageid' => $itemid,
+            'harpiasurveyid' => $cm->instance
+        ]);
+        if (!$pageok) {
+            return false;
+        }
+    }
+
+    $filename = array_pop($args);
+    $filepath = $args ? '/' . implode('/', $args) . '/' : '/';
+
+    $fs = get_file_storage();
+    $file = $fs->get_file($context->id, 'mod_harpiasurvey', $filearea, $itemid, $filepath, $filename);
+    if (!$file || $file->is_directory()) {
+        return false;
+    }
+
+    send_stored_file($file, null, 0, $forcedownload, $options);
+}
+
+/**
  * Saves a new instance of the mod_harpiasurvey into the database.
  *
  * Given an object containing all the necessary data, (defined by the form
@@ -105,12 +166,49 @@ function harpiasurvey_delete_instance($id) {
     if (!empty($experiments)) {
         $experimentids = array_keys($experiments);
         $DB->delete_records_list('harpiasurvey_experiment_models', 'experimentid', $experimentids);
+        if ($DB->get_manager()->table_exists('harpiasurvey_experiment_finalizations')) {
+            $DB->delete_records_list('harpiasurvey_experiment_finalizations', 'experimentid', $experimentids);
+        }
         
         // Get page IDs before deleting pages.
         $pageids = $DB->get_records_list('harpiasurvey_pages', 'experimentid', $experimentids, '', 'id');
         if (!empty($pageids)) {
             $pageidlist = array_keys($pageids);
             $DB->delete_records_list('harpiasurvey_page_questions', 'pageid', $pageidlist);
+            if ($DB->get_manager()->table_exists('harpiasurvey_review_targets')) {
+                $DB->delete_records_list('harpiasurvey_review_targets', 'pageid', $pageidlist);
+            }
+            if ($DB->get_manager()->table_exists('harpiasurvey_review_datasets')) {
+                $datasets = $DB->get_records_list('harpiasurvey_review_datasets', 'pageid', $pageidlist, '', 'id');
+                $datasetids = array_keys($datasets);
+                if (!empty($datasetids)) {
+                    if ($DB->get_manager()->table_exists('harpiasurvey_review_message_threads')) {
+                        $DB->delete_records_list('harpiasurvey_review_message_threads', 'datasetid', $datasetids);
+                    }
+                    if ($DB->get_manager()->table_exists('harpiasurvey_review_messages')) {
+                        $DB->delete_records_list('harpiasurvey_review_messages', 'datasetid', $datasetids);
+                    }
+                    if ($DB->get_manager()->table_exists('harpiasurvey_review_threads')) {
+                        $DB->delete_records_list('harpiasurvey_review_threads', 'datasetid', $datasetids);
+                    }
+                    $DB->delete_records_list('harpiasurvey_review_datasets', 'id', $datasetids);
+                }
+            }
+
+            $cmid = $DB->get_field_sql(
+                "SELECT cm.id
+                   FROM {course_modules} cm
+                   JOIN {modules} m ON m.id = cm.module
+                  WHERE cm.instance = :instanceid AND m.name = 'harpiasurvey'",
+                ['instanceid' => $id]
+            );
+            if ($cmid) {
+                $cmcontext = \context_module::instance($cmid);
+                $fs = get_file_storage();
+                foreach ($pageidlist as $pid) {
+                    $fs->delete_area_files($cmcontext->id, 'mod_harpiasurvey', 'reviewcsv', $pid);
+                }
+            }
         }
         $DB->delete_records_list('harpiasurvey_pages', 'experimentid', $experimentids);
     }
@@ -310,4 +408,3 @@ function harpiasurvey_extend_settings_navigation($settingsnav, $harpiasurveynode
         $harpiasurveynode->add_node($modelsnode);
     }
 }
-

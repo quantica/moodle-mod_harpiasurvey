@@ -155,6 +155,13 @@ if ($form->is_cancelled()) {
             // Get all subpage questions.
             $subpagequestions = $DB->get_records('harpiasurvey_subpage_questions', ['subpageid' => $data->id]);
             
+            $postedrequired = [];
+            if (isset($data->question_required) && is_array($data->question_required)) {
+                $postedrequired = $data->question_required;
+            } else if (isset($_POST['question_required']) && is_array($_POST['question_required'])) {
+                $postedrequired = $_POST['question_required'];
+            }
+
             foreach ($subpagequestions as $sq) {
                 $updated = false;
                 if (isset($data->question_enabled) && is_array($data->question_enabled)) {
@@ -164,12 +171,11 @@ if ($form->is_cancelled()) {
                         $updated = true;
                     }
                 }
-                if (isset($data->question_required) && is_array($data->question_required)) {
-                    $required = isset($data->question_required[$sq->id]) ? 1 : 0;
-                    if (!isset($sq->required) || (int)$sq->required !== $required) {
-                        $sq->required = $required;
-                        $updated = true;
-                    }
+                // Unchecked checkboxes are not submitted by the browser, so a missing array means all are unchecked.
+                $required = isset($postedrequired[$sq->id]) ? 1 : 0;
+                if (!isset($sq->required) || (int)$sq->required !== $required) {
+                    $sq->required = $required;
+                    $updated = true;
                 }
                 if ($updated) {
                     $DB->update_record('harpiasurvey_subpage_questions', $sq);

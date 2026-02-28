@@ -99,8 +99,10 @@ if ($experimentid) {
     $formdata->availability = $experiment->availability;
     $formdata->availabilityend = $experiment->availabilityend;
     $formdata->maxparticipants = $experiment->maxparticipants ?? null;
+    $formdata->navigation_mode = $experiment->navigation_mode ?? 'free_navigation';
 } else {
     $formdata->id = 0;
+    $formdata->navigation_mode = 'free_navigation';
 }
 
 // Set up page.

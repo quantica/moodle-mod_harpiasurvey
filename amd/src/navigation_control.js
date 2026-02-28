@@ -135,31 +135,15 @@ export const init = (canmanage = false) => {
         unloadWarningMessage = 'There are evaluation questions you did not answer. Are you sure you want to quit?';
     });
 
-    // Add validation for required questions only in only-forward mode.
+    // Keep only-forward direction restrictions, but do not block page changes for unanswered questions.
     $(document).on('click', '.navigation-next-link', function(e) {
         if (!isOnlyForward) {
             return true;
         }
-        e.preventDefault();
-        const link = $(this);
-
-        // Check if all required questions are answered.
-        const result = areAllQuestionsAnswered();
-
-        if (!result.allAnswered) {
-            // Show alert.
-            getString('questionsmustbeanswered', 'mod_harpiasurvey').then((message) => {
-                const detail = result.unansweredQuestions.length ? '\n\n' + result.unansweredQuestions.join('\n') : '';
-                alert(message + detail);
-            });
-            return false;
-        }
-
-        // All questions answered - proceed to next page.
-        window.location.href = link.attr('href');
+        return true;
     });
 
-    // Guard any pagination link (previous/numbered) with required question check.
+    // Keep default pagination behavior; only disabled items remain blocked below.
     $(document).on('click', '.pagination a.page-link', function(e) {
         if (!isOnlyForward) {
             return true;
@@ -170,15 +154,6 @@ export const init = (canmanage = false) => {
         }
         if (link.closest('li').hasClass('active')) {
             return;
-        }
-        const result = areAllQuestionsAnswered();
-        if (!result.allAnswered) {
-            e.preventDefault();
-            getString('questionsmustbeanswered', 'mod_harpiasurvey').then((message) => {
-                const detail = result.unansweredQuestions.length ? '\n\n' + result.unansweredQuestions.join('\n') : '';
-                alert(message + detail);
-            });
-            return false;
         }
         return true;
     });
@@ -220,19 +195,7 @@ export const init = (canmanage = false) => {
             return false;
         }
 
-        // Check required questions before navigating to a different page.
-        if (isOnlyForward && clickedIndex >= 0 && currentIndex >= 0 && clickedIndex !== currentIndex) {
-            const result = areAllQuestionsAnswered();
-
-            if (!result.allAnswered) {
-                e.preventDefault();
-                getString('questionsmustbeanswered', 'mod_harpiasurvey').then((message) => {
-                    const detail = result.unansweredQuestions.length ? '\n\n' + result.unansweredQuestions.join('\n') : '';
-                    alert(message + detail);
-                });
-                return false;
-            }
-        }
+        // Do not block page changes for unanswered questions anymore.
     });
 
     // Also prevent clicking on page numbers for previous pages.

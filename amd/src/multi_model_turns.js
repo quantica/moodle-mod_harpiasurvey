@@ -166,6 +166,14 @@ const initMultiModelTurnsPage = (pageid) => {
         }
     }
     
+    const hasExplicitUrlTurn = (() => {
+        if (urlTurn === null || urlTurn === '') {
+            return false;
+        }
+        const parsedTurn = parseInt(urlTurn, 10);
+        return !isNaN(parsedTurn) && parsedTurn > 0;
+    })();
+
     // First, ensure all messages from backend have correct data attributes
     tabPanes.each(function() {
         const modelid = parseInt($(this).data('model-id'), 10);
@@ -206,6 +214,7 @@ const initMultiModelTurnsPage = (pageid) => {
         
         // Get initial viewing turn from URL or use calculated
         let initialViewingTurn = modelTurns[pageid][modelid];
+        let hasExplicitInitialTurn = false;
         
         // If URL has model param, only apply turn to that model
         // Otherwise, apply turn to all models (for backward compatibility)
@@ -214,17 +223,23 @@ const initMultiModelTurnsPage = (pageid) => {
             if (!isNaN(parsedTurn) && parsedTurn > 0) {
                 if (urlModel === null || urlModel === '' || parseInt(urlModel, 10) === modelid) {
                     initialViewingTurn = parsedTurn;
+                    hasExplicitInitialTurn = true;
                 }
             }
         }
-        
-        setViewingTurnForModel(pageid, modelid, initialViewingTurn);
-        updateTurnDisplayForModel(pageid, modelid);
-        updateChatLockStateForModel(pageid, modelid);
+
+        const shouldAutoloadSelection = hasExplicitInitialTurn || maxTurn === 0;
+        if (shouldAutoloadSelection) {
+            setViewingTurnForModel(pageid, modelid, initialViewingTurn);
+            updateTurnDisplayForModel(pageid, modelid);
+            updateChatLockStateForModel(pageid, modelid);
+        } else {
+            setNoTurnSelectedStateForModel(pageid, modelid);
+        }
     });
     
     // Activate the model tab from URL if specified
-    if (urlModel !== null && urlModel !== '') {
+    if (hasExplicitUrlTurn && urlModel !== null && urlModel !== '') {
         const modelIdFromUrl = parseInt(urlModel, 10);
         if (!isNaN(modelIdFromUrl)) {
             const tabButton = $(`#model-tab-${modelIdFromUrl}-${pageid}`);
@@ -243,6 +258,11 @@ const initMultiModelTurnsPage = (pageid) => {
             // Filter messages for all models after tree loads
             tabPanes.each(function() {
                 const modelid = parseInt($(this).data('model-id'), 10);
+                const messagesContainer = $(`#chat-messages-model-${modelid}-${pageid}`);
+                const maxTurnForModel = messagesContainer.find('.message[data-turn-id]').length > 0;
+                if (!hasExplicitUrlTurn && maxTurnForModel) {
+                    return;
+                }
                 const viewingTurn = getViewingTurnForModel(pageid, modelid);
                 filterMessagesByTurnForModel(pageid, modelid, viewingTurn);
             });
@@ -250,6 +270,11 @@ const initMultiModelTurnsPage = (pageid) => {
             // If tree loading fails, still filter
             tabPanes.each(function() {
                 const modelid = parseInt($(this).data('model-id'), 10);
+                const messagesContainer = $(`#chat-messages-model-${modelid}-${pageid}`);
+                const maxTurnForModel = messagesContainer.find('.message[data-turn-id]').length > 0;
+                if (!hasExplicitUrlTurn && maxTurnForModel) {
+                    return;
+                }
                 const viewingTurn = getViewingTurnForModel(pageid, modelid);
                 filterMessagesByTurnForModel(pageid, modelid, viewingTurn);
             });
@@ -258,6 +283,11 @@ const initMultiModelTurnsPage = (pageid) => {
         // No sidebar - filter immediately
         tabPanes.each(function() {
             const modelid = parseInt($(this).data('model-id'), 10);
+            const messagesContainer = $(`#chat-messages-model-${modelid}-${pageid}`);
+            const hasHistoryForModel = messagesContainer.find('.message[data-turn-id]').length > 0;
+            if (!hasExplicitUrlTurn && hasHistoryForModel) {
+                return;
+            }
             const viewingTurn = getViewingTurnForModel(pageid, modelid);
             filterMessagesByTurnForModel(pageid, modelid, viewingTurn);
         });
@@ -267,6 +297,11 @@ const initMultiModelTurnsPage = (pageid) => {
     setTimeout(() => {
         tabPanes.each(function() {
             const modelid = parseInt($(this).data('model-id'), 10);
+            const messagesContainer = $(`#chat-messages-model-${modelid}-${pageid}`);
+            const hasHistoryForModel = messagesContainer.find('.message[data-turn-id]').length > 0;
+            if (!hasExplicitUrlTurn && hasHistoryForModel) {
+                return;
+            }
             const viewingTurn = getViewingTurnForModel(pageid, modelid);
             ensureTurnEvaluationQuestionsRenderedForModel(pageid, modelid, viewingTurn).then(() => {
                 loadTurnEvaluationResponsesForModel(pageid, modelid, viewingTurn);
@@ -351,6 +386,30 @@ const setViewingTurnForModel = (pageid, modelid, turn) => {
     }
 };
 
+const setNoTurnSelectedStateForModel = (pageid, modelid) => {
+    const pane = $(`#model-pane-${modelid}-${pageid}`);
+    const messagesContainer = $(`#chat-messages-model-${modelid}-${pageid}`);
+    messagesContainer.find('.message').hide();
+
+    const evalContainer = $(`#qa-evaluation-questions-container-model-${modelid}-${pageid}, #turn-evaluation-questions-container-model-${modelid}-${pageid}`);
+    if (evalContainer.length > 0) {
+        evalContainer.empty();
+    }
+
+    const badge = $(`#current-turn-badge-model-${modelid}-${pageid}`);
+    if (badge.length) {
+        badge.hide();
+    }
+
+    if (messagesContainer.find('.message[data-turn-id]').length > 0) {
+        const input = $(`#chat-input-model-${modelid}-${pageid}`);
+        const button = $(`#send-message-btn-model-${modelid}-${pageid}`);
+        input.prop('disabled', true);
+        button.prop('disabled', true);
+        pane.removeData(`viewing-turn-${modelid}`);
+    }
+};
+
 /**
  * Get current turn for a specific model.
  *
@@ -373,6 +432,7 @@ const updateTurnDisplayForModel = (pageid, modelid) => {
     const badge = $(`#current-turn-badge-model-${modelid}-${pageid}`);
     const numberSpan = $(`#current-turn-number-model-${modelid}-${pageid}`);
     if (badge.length && numberSpan.length) {
+        badge.show();
         getString('turn', 'mod_harpiasurvey').then((turnStr) => {
             numberSpan.text(`${turnStr} ${viewingTurn}`);
         });
@@ -394,20 +454,19 @@ const updateChatLockStateForModel = (pageid, modelid) => {
     
     // Check max turns
     const maxTurns = container.data('max-turns');
-    const minTurns = container.data('min-turns');
+    const maxTurnsNum = (maxTurns !== undefined && maxTurns !== null) ? parseInt(maxTurns, 10) : null;
     
     let shouldLock = false;
     if (viewingTurn < currentTurn) {
         // Viewing a past turn - lock it
         shouldLock = true;
-    } else if (maxTurns !== undefined && maxTurns !== null) {
-        const maxTurnsNum = parseInt(maxTurns, 10);
+    } else if (isTurnCompleteForModel(pageid, modelid, viewingTurn)) {
+        // One prompt + one answer per turn, regardless of min/max turn constraints.
+        shouldLock = true;
+    } else if (maxTurnsNum !== null && !isNaN(maxTurnsNum)) {
         const turnCount = getTurnCountForConversationForModel(pageid, modelid, viewingTurn);
-        if (turnCount !== null && turnCount >= maxTurnsNum) {
-            // Check if current turn is complete
-            if (isTurnCompleteForModel(pageid, modelid, viewingTurn)) {
-                shouldLock = true;
-            }
+        if (turnCount !== null && turnCount >= maxTurnsNum && isTurnCompleteForModel(pageid, modelid, viewingTurn)) {
+            shouldLock = true;
         }
     }
     
@@ -1161,8 +1220,9 @@ const loadConversationTree = (pageid) => {
             if (!activeModelId || isNaN(activeModelId)) {
                 activeModelId = parseInt(container.find('.tab-pane[data-model-id]').first().data('model-id'), 10);
             }
-            const viewingTurn = activeModelId ? getViewingTurnForModel(pageid, activeModelId) : 
-                (data.tree.roots && data.tree.roots.length > 0 ? parseInt(data.tree.roots[0].turn_id, 10) : 1);
+            const viewingTurnKey = activeModelId ? `viewing-turn-${activeModelId}` : null;
+            const hasExplicitViewingTurn = !!(activeModelId && typeof container.data(viewingTurnKey) !== 'undefined');
+            const viewingTurn = (activeModelId && hasExplicitViewingTurn) ? getViewingTurnForModel(pageid, activeModelId) : null;
             // Check if we're in list view or detail view
             const sidebar = $(`#conversation-tree-sidebar-${pageid}`);
             const viewMode = sidebar.data('sidebar-view') || 'list';
@@ -1173,14 +1233,14 @@ const loadConversationTree = (pageid) => {
                 renderConversationList(pageid, data.tree.roots);
             } else {
                 const root = branchRootId ? findNodeByTurnId(data.tree.roots || [], branchRootId) :
-                    findRootForTurn(data.tree.roots || [], viewingTurn);
+                    (viewingTurn ? findRootForTurn(data.tree.roots || [], viewingTurn) : null);
                 if (root) {
                     renderConversationDetail(pageid, root, viewingTurn);
                 } else {
                     renderConversationList(pageid, data.tree.roots);
                 }
             }
-            if (activeModelId) {
+            if (activeModelId && hasExplicitViewingTurn && viewingTurn) {
                 syncTurnsUrlStateForModel(pageid, activeModelId, viewingTurn);
             }
             
@@ -1231,9 +1291,9 @@ const getTurnNumberForId = (pageid, turnId) => {
             const sortedDB = [...node.direct_branches].sort((a, b) =>
                 parseInt(a.turn_id, 10) - parseInt(b.turn_id, 10)
             );
-            let dbCounter = turnIndex + 1;
-            for (const db of sortedDB) {
-                const dbNumber = calculateTurnNumber(db, dbCounter, null);
+            for (let i = 0; i < sortedDB.length; i++) {
+                const db = sortedDB[i];
+                const dbNumber = calculateTurnNumber(db, i, nodeNumber);
                 if (parseInt(db.turn_id, 10) === parseInt(targetId, 10)) {
                     return dbNumber;
                 }
@@ -1248,7 +1308,6 @@ const getTurnNumberForId = (pageid, turnId) => {
                         }
                     }
                 }
-                dbCounter++;
             }
         }
 
@@ -1331,6 +1390,7 @@ const renderConversationDetail = (pageid, root, viewingTurn = null) => {
     let turnCounter = 0;
     const rootTurnNumber = getTurnNumberForId(pageid, root.turn_id) || '1';
     const rootNodeData = prepareNodeData(root, 0, activeTurn, pageid, cmid, turnCounter, null, false, rootTurnNumber);
+    rootNodeData.suppress_inline_branch_button = true; // First turn in conversation.
     turnCounter++;
 
     const directBranches = [];
@@ -1339,22 +1399,25 @@ const renderConversationDetail = (pageid, root, viewingTurn = null) => {
         const sortedDirectBranches = [...childBranches].sort((a, b) =>
             parseInt(a.turn_id, 10) - parseInt(b.turn_id, 10)
         );
-        sortedDirectBranches.forEach((node) => {
+        sortedDirectBranches.forEach((node, index) => {
             const childTurnNumber = getTurnNumberForId(pageid, node.turn_id) ||
-                calculateTurnNumber(node, turnCounter, null);
+                calculateTurnNumber(node, index, rootTurnNumber);
             directBranches.push(prepareNodeData(
                 node,
                 0,
                 activeTurn,
                 pageid,
                 cmid,
-                turnCounter,
-                null,
+                index,
+                rootTurnNumber,
                 false,
                 childTurnNumber
             ));
             turnCounter++;
         });
+        if (directBranches.length > 0) {
+            directBranches[directBranches.length - 1].suppress_inline_branch_button = true; // Last turn in conversation.
+        }
     }
 
     Templates.render('mod_harpiasurvey/conversation_detail', {
@@ -1712,6 +1775,22 @@ function registerTreeHandlers() {
         const container = $(`.multi-model-chat-container[data-pageid="${pageid}"]`);
         const activeTab = container.find('.tab-pane.active');
         const activeModelId = parseInt(activeTab.data('model-id'), 10);
+        const currentViewingTurn = activeModelId ? getViewingTurnForModel(pageid, activeModelId) : null;
+        if (activeModelId && currentViewingTurn &&
+            hasUnsavedTurnEvaluationForModel(pageid, activeModelId, currentViewingTurn)) {
+            getString('turnrequiresave', 'mod_harpiasurvey').then((message) => {
+                Notification.addNotification({
+                    message: message,
+                    type: 'warning'
+                });
+            }).catch(() => {
+                Notification.addNotification({
+                    message: 'Please save the evaluation answers before creating a new turn.',
+                    type: 'warning'
+                });
+            });
+            return;
+        }
         if (activeModelId && hasUnsavedTurnEvaluationForModel(pageid, activeModelId, turnId)) {
             getString('turnrequiresave', 'mod_harpiasurvey').then((message) => {
                 Notification.addNotification({
@@ -1777,6 +1856,22 @@ function registerTreeHandlers() {
         }
         const activeTab = $(`.multi-model-chat-container[data-pageid="${pageid}"]`).find('.tab-pane.active');
         const activeModelId = parseInt(activeTab.data('model-id'), 10);
+        const currentViewingTurn = activeModelId ? getViewingTurnForModel(pageid, activeModelId) : null;
+        if (activeModelId && currentViewingTurn &&
+            hasUnsavedTurnEvaluationForModel(pageid, activeModelId, currentViewingTurn)) {
+            getString('turnrequiresave', 'mod_harpiasurvey').then((message) => {
+                Notification.addNotification({
+                    message: message,
+                    type: 'warning'
+                });
+            }).catch(() => {
+                Notification.addNotification({
+                    message: 'Please save the evaluation answers before creating a new turn.',
+                    type: 'warning'
+                });
+            });
+            return;
+        }
         if (activeModelId && hasUnsavedTurnEvaluationForModel(pageid, activeModelId, parentTurnId)) {
             getString('turnrequiresave', 'mod_harpiasurvey').then((message) => {
                 Notification.addNotification({
@@ -1804,6 +1899,26 @@ function registerTreeHandlers() {
         if (!pageid || !cmid) {
             addError('Missing required data to create root');
             return;
+        }
+        const container = $(`.multi-model-chat-container[data-pageid="${pageid}"]`);
+        const activeTab = container.find('.tab-pane.active');
+        const activeModelId = parseInt(activeTab.data('model-id'), 10);
+        if (activeModelId) {
+            const viewingTurn = getViewingTurnForModel(pageid, activeModelId);
+            if (viewingTurn && hasUnsavedTurnEvaluationForModel(pageid, activeModelId, viewingTurn)) {
+                getString('turnrequiresave', 'mod_harpiasurvey').then((message) => {
+                    Notification.addNotification({
+                        message: message,
+                        type: 'warning'
+                    });
+                }).catch(() => {
+                    Notification.addNotification({
+                        message: 'Please save the evaluation answers before creating a new turn.',
+                        type: 'warning'
+                    });
+                });
+                return;
+            }
         }
         createNewRootForModel(cmid, pageid);
     });

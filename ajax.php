@@ -18,6 +18,7 @@ define('AJAX_SCRIPT', true);
 
 require(__DIR__.'/../../config.php');
 require_once(__DIR__.'/lib.php');
+require_once(__DIR__.'/locallib.php');
 
 $action = required_param('action', PARAM_ALPHANUMEXT);
 $cmid = required_param('cmid', PARAM_INT);
@@ -25,7 +26,7 @@ $cmid = required_param('cmid', PARAM_INT);
 // For subpage actions, pageid might come as a parameter, but it's required for most actions.
 // We'll handle it conditionally below.
 // For most actions, pageid is required. For subpage actions, we'll get it from the subpage.
-if (!in_array($action, ['get_available_subpage_questions', 'add_question_to_subpage'])) {
+if (!in_array($action, ['get_available_subpage_questions', 'add_question_to_subpage', 'get_finalize_summary', 'confirm_finalize_experiment'])) {
     $pageid = required_param('pageid', PARAM_INT);
 } else {
     $pageid = optional_param('pageid', 0, PARAM_INT);
@@ -38,20 +39,24 @@ require_login($course, true, $cm);
 if (in_array($action, ['add_question_to_page', 'get_available_questions', 'add_question_to_subpage', 'get_available_subpage_questions'])) {
     require_capability('mod/harpiasurvey:manageexperiments', $cm->context);
 } else if (in_array($action, ['save_response', 'send_ai_message', 'get_conversation_history', 'get_turn_responses', 'get_turn_questions',
-                              'get_conversation_tree', 'create_branch', 'create_root', 'export_conversation'])) {
+                              'get_conversation_tree', 'create_branch', 'create_root', 'export_conversation',
+                              'get_finalize_summary', 'confirm_finalize_experiment', 'save_turn_evaluation',
+                              'get_review_threads', 'get_review_thread_messages', 'get_review_target', 'get_review_evaluation_responses'])) {
     // Students can save their own responses and interact with AI.
     require_capability('mod/harpiasurvey:view', $cm->context);
 }
 
 // Verify sesskey for write operations.
-if (in_array($action, ['add_question_to_page', 'add_question_to_subpage', 'save_response', 'send_ai_message', 'create_branch', 'create_root', 'export_conversation'])) {
+if (in_array($action, ['add_question_to_page', 'add_question_to_subpage', 'save_response', 'send_ai_message', 'create_branch', 'create_root',
+        'export_conversation', 'confirm_finalize_experiment', 'get_finalize_summary', 'save_turn_evaluation',
+        'get_review_threads', 'get_review_thread_messages', 'get_review_target', 'get_review_evaluation_responses'])) {
     require_sesskey();
 }
 
 $harpiasurvey = $DB->get_record('harpiasurvey', ['id' => $cm->instance], '*', MUST_EXIST);
 
 // For most actions, pageid is required and we need to load the page.
-if (!in_array($action, ['get_available_subpage_questions', 'add_question_to_subpage'])) {
+if (!in_array($action, ['get_available_subpage_questions', 'add_question_to_subpage', 'get_finalize_summary', 'confirm_finalize_experiment'])) {
     $page = $DB->get_record('harpiasurvey_pages', ['id' => $pageid], '*', MUST_EXIST);
 } else {
     // For subpage actions, pageid will be required in the case statement.
@@ -154,7 +159,331 @@ function get_turn_history($DB, $pageid, $userid, $turn_id, $modelid = null) {
     return $history;
 }
 
+/**
+ * Resolve experiment for current page and block writes if finalized.
+ *
+ * @param moodle_database $DB
+ * @param stdClass $page
+ * @param stdClass $harpiasurvey
+ * @param stdClass $USER
+ * @return array [bool blocked, stdClass|null experiment]
+ */
+function harpiasurvey_ajax_get_page_experiment_and_lock_check($DB, $page, $harpiasurvey, $USER): array {
+    if (!$page) {
+        return [true, null];
+    }
+    $experiment = $DB->get_record('harpiasurvey_experiments', ['id' => $page->experimentid], '*', MUST_EXIST);
+    if ((int)$experiment->harpiasurveyid !== (int)$harpiasurvey->id) {
+        return [true, null];
+    }
+    return [false, $experiment];
+}
+
+/**
+ * Emit finalized read-only error and stop current action branch.
+ *
+ * @return void
+ */
+function harpiasurvey_ajax_emit_finalized_error() {
+    echo json_encode([
+        'success' => false,
+        'message' => get_string('experimentfinalizedreadonly', 'mod_harpiasurvey')
+    ]);
+}
+
+/**
+ * Get ready review dataset for a page.
+ *
+ * @param moodle_database $DB
+ * @param int $pageid
+ * @return stdClass|false
+ */
+function harpiasurvey_get_review_dataset($DB, int $pageid) {
+    if (!$DB->get_manager()->table_exists('harpiasurvey_review_datasets')) {
+        return false;
+    }
+    return $DB->get_record('harpiasurvey_review_datasets', [
+        'pageid' => $pageid,
+        'status' => 'ready'
+    ]);
+}
+
 switch ($action) {
+    case 'get_finalize_summary':
+        $experimentid = required_param('experimentid', PARAM_INT);
+        $experiment = $DB->get_record('harpiasurvey_experiments', [
+            'id' => $experimentid,
+            'harpiasurveyid' => $harpiasurvey->id
+        ], '*', MUST_EXIST);
+
+        $summary = mod_harpiasurvey_get_experiment_finalization_summary($experiment->id, $USER->id, $cm->context);
+        $finalization = mod_harpiasurvey_get_experiment_finalization_record($experiment->id, $USER->id);
+        if ($finalization && !empty($finalization->summaryjson)) {
+            $stored = json_decode($finalization->summaryjson, true);
+            if (is_array($stored)) {
+                $summary = array_merge($summary, $stored);
+            }
+        }
+
+        echo json_encode([
+            'success' => true,
+            'finalized' => (bool)$finalization,
+            'finalizedat' => $finalization ? userdate($finalization->timemodified) : null,
+            'summary' => $summary
+        ]);
+        break;
+
+    case 'confirm_finalize_experiment':
+        $experimentid = required_param('experimentid', PARAM_INT);
+        $certified = optional_param('certified', 0, PARAM_INT);
+        $experiment = $DB->get_record('harpiasurvey_experiments', [
+            'id' => $experimentid,
+            'harpiasurveyid' => $harpiasurvey->id
+        ], '*', MUST_EXIST);
+
+        if ((int)$certified !== 1) {
+            echo json_encode([
+                'success' => false,
+                'finalized' => false,
+                'blockedreason' => 'certificationrequired',
+                'message' => get_string('certificationrequired', 'mod_harpiasurvey')
+            ]);
+            break;
+        }
+
+        $summary = mod_harpiasurvey_get_experiment_finalization_summary($experiment->id, $USER->id, $cm->context);
+        if (!empty($summary['requiredunanswered'])) {
+            echo json_encode([
+                'success' => false,
+                'finalized' => false,
+                'blockedreason' => 'requiredunanswered',
+                'summary' => $summary,
+                'message' => get_string('cannotfinalizerequiredunanswered', 'mod_harpiasurvey')
+            ]);
+            break;
+        }
+
+        $now = time();
+        $record = $DB->get_record('harpiasurvey_experiment_finalizations', [
+            'experimentid' => $experiment->id,
+            'userid' => $USER->id
+        ]);
+        if ($record) {
+            $record->certified = 1;
+            $record->summaryjson = json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $record->timemodified = $now;
+            $DB->update_record('harpiasurvey_experiment_finalizations', $record);
+        } else {
+            $record = (object)[
+                'experimentid' => $experiment->id,
+                'userid' => $USER->id,
+                'certified' => 1,
+                'summaryjson' => json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'timecreated' => $now,
+                'timemodified' => $now
+            ];
+            $DB->insert_record('harpiasurvey_experiment_finalizations', $record);
+        }
+
+        echo json_encode([
+            'success' => true,
+            'finalized' => true,
+            'message' => get_string('experimentfinalizedsuccess', 'mod_harpiasurvey'),
+            'summary' => $summary
+        ]);
+        break;
+
+    case 'get_review_threads':
+        if (($page->type ?? '') !== 'aichat' || ($page->behavior ?? '') !== 'review_conversation') {
+            echo json_encode([
+                'success' => false,
+                'message' => get_string('invalidbehaviorforaction', 'mod_harpiasurvey')
+            ]);
+            break;
+        }
+        $dataset = harpiasurvey_get_review_dataset($DB, (int)$pageid);
+        if (!$dataset) {
+            echo json_encode(['success' => true, 'threads' => []]);
+            break;
+        }
+        $threads = $DB->get_records_sql(
+            "SELECT rt.id, rt.label, rt.thread_order, COUNT(rmt.id) AS messagecount
+               FROM {harpiasurvey_review_threads} rt
+               LEFT JOIN {harpiasurvey_review_message_threads} rmt ON rmt.threadid = rt.id
+              WHERE rt.datasetid = :datasetid
+           GROUP BY rt.id, rt.label, rt.thread_order
+           ORDER BY rt.thread_order ASC, rt.id ASC",
+            ['datasetid' => $dataset->id]
+        );
+        $threadlist = [];
+        foreach ($threads as $thread) {
+            $threadlist[] = [
+                'id' => (int)$thread->id,
+                'label' => format_string((string)$thread->label),
+                'message_count' => (int)$thread->messagecount,
+            ];
+        }
+        echo json_encode(['success' => true, 'threads' => $threadlist]);
+        break;
+
+    case 'get_review_thread_messages':
+        $threadid = required_param('threadid', PARAM_INT);
+        if (($page->type ?? '') !== 'aichat' || ($page->behavior ?? '') !== 'review_conversation') {
+            echo json_encode([
+                'success' => false,
+                'message' => get_string('invalidbehaviorforaction', 'mod_harpiasurvey')
+            ]);
+            break;
+        }
+        $dataset = harpiasurvey_get_review_dataset($DB, (int)$pageid);
+        if (!$dataset) {
+            echo json_encode(['success' => true, 'messages' => []]);
+            break;
+        }
+        $thread = $DB->get_record('harpiasurvey_review_threads', ['id' => $threadid, 'datasetid' => $dataset->id]);
+        if (!$thread) {
+            echo json_encode([
+                'success' => false,
+                'message' => get_string('invalidreviewtarget', 'mod_harpiasurvey')
+            ]);
+            break;
+        }
+        $messages = $DB->get_records_sql(
+            "SELECT rm.*
+               FROM {harpiasurvey_review_messages} rm
+               JOIN {harpiasurvey_review_message_threads} rmt ON rmt.reviewmessageid = rm.id
+              WHERE rmt.threadid = :threadid
+                AND rm.datasetid = :datasetid
+           ORDER BY rm.sortindex ASC, rm.id ASC",
+            ['threadid' => $threadid, 'datasetid' => $dataset->id]
+        );
+        $messagelist = [];
+        foreach ($messages as $message) {
+            $messagelist[] = [
+                'id' => (int)$message->id,
+                'role' => $message->role,
+                'content' => format_text($message->content, FORMAT_MARKDOWN, [
+                    'context' => $cm->context,
+                    'noclean' => false,
+                    'overflowdiv' => true
+                ]),
+                'timecreated' => $message->sourcets ? userdate($message->sourcets, get_string('strftimedatetimeshort', 'langconfig')) : '',
+            ];
+        }
+        echo json_encode(['success' => true, 'messages' => $messagelist]);
+        break;
+
+    case 'get_review_target':
+        $threadid = required_param('threadid', PARAM_INT);
+        if (($page->type ?? '') !== 'aichat' || ($page->behavior ?? '') !== 'review_conversation') {
+            echo json_encode([
+                'success' => false,
+                'message' => get_string('invalidbehaviorforaction', 'mod_harpiasurvey')
+            ]);
+            break;
+        }
+        $dataset = harpiasurvey_get_review_dataset($DB, (int)$pageid);
+        if (!$dataset) {
+            echo json_encode([
+                'success' => false,
+                'message' => get_string('reviewnodatayet', 'mod_harpiasurvey')
+            ]);
+            break;
+        }
+        $thread = $DB->get_record('harpiasurvey_review_threads', ['id' => $threadid, 'datasetid' => $dataset->id]);
+        if (!$thread) {
+            echo json_encode([
+                'success' => false,
+                'message' => get_string('invalidreviewtarget', 'mod_harpiasurvey')
+            ]);
+            break;
+        }
+        $target = $DB->get_record('harpiasurvey_review_targets', [
+            'pageid' => $pageid,
+            'userid' => $USER->id,
+            'threadid' => $threadid
+        ]);
+        if (!$target) {
+            $now = time();
+            $targetid = $DB->insert_record('harpiasurvey_review_targets', (object)[
+                'pageid' => $pageid,
+                'userid' => $USER->id,
+                'threadid' => $threadid,
+                'timecreated' => $now,
+                'timemodified' => $now,
+            ]);
+        } else {
+            $targetid = (int)$target->id;
+        }
+        echo json_encode([
+            'success' => true,
+            'targetid' => (int)$targetid
+        ]);
+        break;
+
+    case 'get_review_evaluation_responses':
+        $threadid = required_param('threadid', PARAM_INT);
+        if (($page->type ?? '') !== 'aichat' || ($page->behavior ?? '') !== 'review_conversation') {
+            echo json_encode([
+                'success' => false,
+                'message' => get_string('invalidbehaviorforaction', 'mod_harpiasurvey')
+            ]);
+            break;
+        }
+        $dataset = harpiasurvey_get_review_dataset($DB, (int)$pageid);
+        if (!$dataset) {
+            echo json_encode([
+                'success' => false,
+                'message' => get_string('reviewnodatayet', 'mod_harpiasurvey')
+            ]);
+            break;
+        }
+        $thread = $DB->get_record('harpiasurvey_review_threads', ['id' => $threadid, 'datasetid' => $dataset->id]);
+        if (!$thread) {
+            echo json_encode([
+                'success' => false,
+                'message' => get_string('invalidreviewtarget', 'mod_harpiasurvey')
+            ]);
+            break;
+        }
+        $target = $DB->get_record('harpiasurvey_review_targets', [
+            'pageid' => $pageid,
+            'userid' => $USER->id,
+            'threadid' => $threadid
+        ]);
+        if (!$target) {
+            $now = time();
+            $targetid = $DB->insert_record('harpiasurvey_review_targets', (object)[
+                'pageid' => $pageid,
+                'userid' => $USER->id,
+                'threadid' => $threadid,
+                'timecreated' => $now,
+                'timemodified' => $now,
+            ]);
+        } else {
+            $targetid = (int)$target->id;
+        }
+
+        $responses = $DB->get_records('harpiasurvey_responses', [
+            'pageid' => $pageid,
+            'userid' => $USER->id,
+            'turn_id' => $targetid
+        ], 'questionid ASC', 'questionid, response, timemodified');
+        $responsesarray = [];
+        foreach ($responses as $response) {
+            $responsesarray[$response->questionid] = [
+                'response' => $response->response,
+                'timemodified' => $response->timemodified,
+            ];
+        }
+
+        echo json_encode([
+            'success' => true,
+            'targetid' => (int)$targetid,
+            'responses' => $responsesarray
+        ]);
+        break;
+
     case 'get_available_questions':
         // Get page type to filter questions appropriately
         $page_type = $page->type ?? '';
@@ -298,6 +627,10 @@ switch ($action) {
             ]);
             break;
         }
+        if (mod_harpiasurvey_is_experiment_finalized_for_user((int)$experiment->id, (int)$USER->id)) {
+            harpiasurvey_ajax_emit_finalized_error();
+            break;
+        }
 
         // For turns mode, every evaluation response must be explicitly tied to a turn.
         if ($page->type === 'aichat' && ($page->behavior ?? '') === 'turns') {
@@ -323,6 +656,29 @@ switch ($action) {
                 echo json_encode([
                     'success' => false,
                     'message' => get_string('invalidturnevaluationtarget', 'mod_harpiasurvey')
+                ]);
+                break;
+            }
+        }
+
+        // For review conversation mode, responses must map to a valid review target.
+        if ($page->type === 'aichat' && ($page->behavior ?? '') === 'review_conversation') {
+            if ($turn_id === null) {
+                echo json_encode([
+                    'success' => false,
+                    'message' => get_string('invalidreviewtarget', 'mod_harpiasurvey')
+                ]);
+                break;
+            }
+            $target = $DB->get_record('harpiasurvey_review_targets', [
+                'id' => $turn_id,
+                'pageid' => $pageid,
+                'userid' => $USER->id
+            ]);
+            if (!$target) {
+                echo json_encode([
+                    'success' => false,
+                    'message' => get_string('invalidreviewtarget', 'mod_harpiasurvey')
                 ]);
                 break;
             }
@@ -438,7 +794,6 @@ switch ($action) {
             ]);
             break;
         }
-
         $questionrecords = $DB->get_records_sql(
             "SELECT q.id, q.type
                FROM {harpiasurvey_page_questions} pq
@@ -575,7 +930,6 @@ switch ($action) {
             ]);
             break;
         }
-
         $questions = $DB->get_records_sql(
             "SELECT pq.id, pq.questionid, pq.enabled, pq.required, pq.min_turn, pq.show_only_turn, pq.hide_on_turn,
                     q.name, q.type, q.description, q.descriptionformat, q.settings
@@ -842,6 +1196,22 @@ switch ($action) {
         
         // Get behavior from page (continuous, turns, multi_model, qa).
         $behavior = $page->behavior ?? 'continuous';
+        if ($behavior === 'review_conversation') {
+            echo json_encode([
+                'success' => false,
+                'message' => get_string('invalidbehaviorforaction', 'mod_harpiasurvey')
+            ]);
+            break;
+        }
+        $experiment = $DB->get_record('harpiasurvey_experiments', ['id' => $page->experimentid], '*', MUST_EXIST);
+        if ((int)$experiment->harpiasurveyid !== (int)$harpiasurvey->id) {
+            echo json_encode(['success' => false, 'message' => 'Invalid page']);
+            break;
+        }
+        if (mod_harpiasurvey_is_experiment_finalized_for_user((int)$experiment->id, (int)$USER->id)) {
+            harpiasurvey_ajax_emit_finalized_error();
+            break;
+        }
         
         // For turns mode, use requested turn_id if provided, otherwise calculate it.
         $turn_id = null;
@@ -893,6 +1263,35 @@ switch ($action) {
             } else {
                 // Fallback: Get the last turn_id for this user and page.
                 $turn_id = ($currentturn > 0) ? ($currentturn + 1) : 1;
+            }
+
+            // A turn always accepts only one user message + one AI response.
+            // Enforce this server-side regardless of min/max turn constraints.
+            if (!empty($turn_id)) {
+                $existingturnmessages = $DB->get_records_sql(
+                    "SELECT role
+                       FROM {harpiasurvey_conversations}
+                      WHERE pageid = ? AND userid = ? AND turn_id = ?
+                        AND modelid = ?
+                        AND content != '[New conversation - send a message to start]'",
+                    [$pageid, $USER->id, $turn_id, $modelid]
+                );
+                $hasuser = false;
+                $hasai = false;
+                foreach ($existingturnmessages as $msg) {
+                    if ($msg->role === 'user') {
+                        $hasuser = true;
+                    } else if ($msg->role === 'assistant') {
+                        $hasai = true;
+                    }
+                }
+                if ($hasuser && $hasai) {
+                    echo json_encode([
+                        'success' => false,
+                        'message' => get_string('chatlocked', 'mod_harpiasurvey')
+                    ]);
+                    break;
+                }
             }
             
             // Check max_turns limit before saving message.
@@ -952,6 +1351,19 @@ switch ($action) {
         
         if ($behavior === 'qa') {
             $parentid = null;
+        }
+
+        if ($behavior === 'qa' && !empty($page->max_qa_questions)) {
+            $currentqacount = (int)$DB->count_records_select('harpiasurvey_conversations',
+                'pageid = ? AND userid = ? AND modelid = ? AND role = ?',
+                [$pageid, $USER->id, $modelid, 'user']);
+            if ($currentqacount >= (int)$page->max_qa_questions) {
+                echo json_encode([
+                    'success' => false,
+                    'message' => get_string('maxqaquestionsreached', 'mod_harpiasurvey')
+                ]);
+                break;
+            }
         }
 
         // For continuous mode, only determine parentid if not provided AND no conversation is specified.
@@ -1137,6 +1549,13 @@ switch ($action) {
         break;
         
     case 'get_conversation_history':
+        if (($page->behavior ?? 'continuous') === 'review_conversation') {
+            echo json_encode([
+                'success' => false,
+                'message' => get_string('invalidbehaviorforaction', 'mod_harpiasurvey')
+            ]);
+            break;
+        }
         // Verify page belongs to this harpiasurvey instance.
         // First get the page (already loaded at line 43, but we need to verify experiment).
         if (!$page || $page->id != $pageid) {
@@ -1218,7 +1637,11 @@ switch ($action) {
             ]);
             break;
         }
-        
+        if (mod_harpiasurvey_is_experiment_finalized_for_user((int)$experiment->id, (int)$USER->id)) {
+            harpiasurvey_ajax_emit_finalized_error();
+            break;
+        }
+
         // Verify turn exists and belongs to this user.
         $turnmessage = $DB->get_record('harpiasurvey_conversations', [
             'pageid' => $pageid,
@@ -1268,6 +1691,13 @@ switch ($action) {
 
     case 'get_conversation_tree':
         require_capability('mod/harpiasurvey:view', $cm->context);
+        if (($page->behavior ?? 'continuous') === 'review_conversation') {
+            echo json_encode([
+                'success' => false,
+                'message' => get_string('invalidbehaviorforaction', 'mod_harpiasurvey')
+            ]);
+            break;
+        }
         
         // Get behavior from page.
         $behavior = $page->behavior ?? 'continuous';
@@ -1511,7 +1941,20 @@ switch ($action) {
     case 'create_branch':
         require_capability('mod/harpiasurvey:view', $cm->context);
         require_sesskey();
+        if (($page->behavior ?? 'continuous') === 'review_conversation') {
+            echo json_encode([
+                'success' => false,
+                'message' => get_string('invalidbehaviorforaction', 'mod_harpiasurvey')
+            ]);
+            break;
+        }
         
+        $experiment = $DB->get_record('harpiasurvey_experiments', ['id' => $page->experimentid], '*', MUST_EXIST);
+        if (mod_harpiasurvey_is_experiment_finalized_for_user((int)$experiment->id, (int)$USER->id)) {
+            harpiasurvey_ajax_emit_finalized_error();
+            break;
+        }
+
         $parent_turn_id = required_param('parent_turn_id', PARAM_INT);
         
         // Verify parent turn exists - check both conversations and branches tables.
@@ -1688,7 +2131,20 @@ switch ($action) {
     case 'create_root':
         require_capability('mod/harpiasurvey:view', $cm->context);
         require_sesskey();
+        if (($page->behavior ?? 'continuous') === 'review_conversation') {
+            echo json_encode([
+                'success' => false,
+                'message' => get_string('invalidbehaviorforaction', 'mod_harpiasurvey')
+            ]);
+            break;
+        }
         
+        $experiment = $DB->get_record('harpiasurvey_experiments', ['id' => $page->experimentid], '*', MUST_EXIST);
+        if (mod_harpiasurvey_is_experiment_finalized_for_user((int)$experiment->id, (int)$USER->id)) {
+            harpiasurvey_ajax_emit_finalized_error();
+            break;
+        }
+
         // Get behavior from page.
         $behavior = $page->behavior ?? 'continuous';
         
@@ -1896,10 +2352,18 @@ switch ($action) {
         
     case 'export_conversation':
         require_sesskey();
+        if (($page->behavior ?? 'continuous') === 'review_conversation') {
+            echo json_encode([
+                'success' => false,
+                'message' => get_string('invalidbehaviorforaction', 'mod_harpiasurvey')
+            ]);
+            break;
+        }
         
         // Get optional parameters
-        $turn_id = optional_param('turn_id', null, PARAM_INT); // For turns mode: export specific conversation
+        $turn_id = optional_param('turn_id', null, PARAM_INT); // For turns/qa mode: export specific iteration
         $conversation_id = optional_param('conversation_id', null, PARAM_INT); // For continuous mode: export specific conversation
+        $modelid = optional_param('modelid', null, PARAM_INT); // Optional model filter (useful for multi-model Q&A)
         
         // Verify page belongs to this harpiasurvey instance
         if (!$page || $page->id != $pageid) {
@@ -1978,6 +2442,51 @@ switch ($action) {
                     $inparams
                 );
             }
+        } else if ($behavior === 'qa' && $turn_id) {
+            // For Q&A mode: export only the selected Q&A pair (user message + assistant reply).
+            $params = [
+                'pageid' => $pageid,
+                'userid' => $USER->id,
+                'turn_id' => $turn_id
+            ];
+            $modelsql = '';
+            if (!empty($modelid)) {
+                $modelsql = ' AND modelid = :modelid';
+                $params['modelid'] = $modelid;
+            }
+            $messages = $DB->get_records_sql(
+                "SELECT *
+                   FROM {harpiasurvey_conversations}
+                  WHERE pageid = :pageid
+                    AND userid = :userid
+                    AND turn_id = :turn_id
+                    {$modelsql}
+                    AND content != '[New conversation - send a message to start]'
+               ORDER BY timecreated ASC, id ASC",
+                $params
+            );
+        } else if ($behavior === 'qa') {
+            // For Q&A mode without a selected pair: export all Q&A entries on this page.
+            $params = [
+                'pageid' => $pageid,
+                'userid' => $USER->id
+            ];
+            $modelsql = '';
+            if (!empty($modelid)) {
+                $modelsql = ' AND modelid = :modelid';
+                $params['modelid'] = $modelid;
+            }
+            $messages = $DB->get_records_sql(
+                "SELECT *
+                   FROM {harpiasurvey_conversations}
+                  WHERE pageid = :pageid
+                    AND userid = :userid
+                    AND turn_id IS NOT NULL
+                    {$modelsql}
+                    AND content != '[New conversation - send a message to start]'
+               ORDER BY turn_id ASC, timecreated ASC, id ASC",
+                $params
+            );
         } else if ($behavior === 'continuous' && $conversation_id) {
             // For continuous mode: export all messages in the conversation
             // Find root conversation

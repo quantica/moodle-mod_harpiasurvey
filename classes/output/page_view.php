@@ -138,8 +138,16 @@ class page_view implements renderable, templatable {
     public function export_for_template(renderer_base $output) {
         global $CFG, $DB, $USER, $PAGE;
 
-        // Format the page description.
-        $description = format_text($this->page->description, $this->page->descriptionformat, [
+        // Rewrite pluginfile URLs and format the page description (supports editor images/files).
+        $descriptiontext = file_rewrite_pluginfile_urls(
+            (string)($this->page->description ?? ''),
+            'pluginfile.php',
+            $this->context->id,
+            'mod_harpiasurvey',
+            'page',
+            $this->page->id
+        );
+        $description = format_text($descriptiontext, $this->page->descriptionformat, [
             'context' => $this->context,
             'noclean' => false,
             'overflowdiv' => true
@@ -602,6 +610,7 @@ class page_view implements renderable, templatable {
         $pagebehavior = $this->page->behavior ?? 'continuous';
         $isturnsmode = ($pagebehavior === 'turns');
         $isqamode = ($pagebehavior === 'qa');
+        $isreviewmode = ($pagebehavior === 'review_conversation');
         
         // Check if page type is aichat and behavior is not multi_model.
         if ($this->page->type === 'aichat' && $pagebehavior !== 'multi_model') {
@@ -959,42 +968,86 @@ class page_view implements renderable, templatable {
                 $turnevaluationquestionsjson = json_encode($turnevaluationquestions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
             }
 
+            $reviewdataset = null;
+            $reviewthreads = [];
+            if ($isreviewmode) {
+                $reviewdataset = $DB->get_record('harpiasurvey_review_datasets', ['pageid' => $this->pageid, 'status' => 'ready']);
+                if ($reviewdataset) {
+                    $threadrecords = $DB->get_records_sql(
+                        "SELECT rt.id, rt.label, rt.thread_order, COUNT(rmt.id) AS messagecount
+                           FROM {harpiasurvey_review_threads} rt
+                           LEFT JOIN {harpiasurvey_review_message_threads} rmt ON rmt.threadid = rt.id
+                          WHERE rt.datasetid = :datasetid
+                       GROUP BY rt.id, rt.label, rt.thread_order
+                       ORDER BY rt.thread_order ASC, rt.id ASC",
+                        ['datasetid' => $reviewdataset->id]
+                    );
+                    foreach ($threadrecords as $thread) {
+                        $reviewthreads[] = [
+                            'id' => (int)$thread->id,
+                            'label' => format_string((string)$thread->label),
+                            'message_count' => (int)$thread->messagecount,
+                        ];
+                    }
+                }
+            }
+
             $aichatdata = [
                 'models' => $models,
                 'has_models' => !empty($models),
                 'has_multiple_models' => $has_multiple_models,
                 'use_multi_model_tabs' => $use_multi_model_tabs,
+                'has_page_evaluation_questions' => !empty($this->questions),
                 'model_tabs' => $model_tabs,
                 'behavior' => $pagebehavior,
                 'is_turns_mode' => $isturnsmode, // Explicit boolean.
                 'is_qa_mode' => $isqamode,
+                'is_review_mode' => $isreviewmode,
                 'show_sidebar' => ($isturnsmode || $pagebehavior === 'continuous'), // Show sidebar for turns and continuous mode.
                 'conversation_history' => $conversationhistory,
                 'has_history' => !empty($conversationhistory),
                 'qa_questions' => $qaquestions,
                 'has_qa_questions' => !empty($qaquestions),
                 'qa_active_id' => $qaactiveid,
+                'review_threads' => $reviewthreads,
+                'has_review_threads' => !empty($reviewthreads),
+                'has_review_dataset' => !empty($reviewdataset),
+                'review_default_thread_id' => !empty($reviewthreads) ? $reviewthreads[0]['id'] : null,
+                'review_dataset_filename' => !empty($reviewdataset->filename) ? s($reviewdataset->filename) : '',
                 'turn_evaluation_questions' => $turnevaluationquestions,
                 'has_turn_evaluation_questions' => !empty($turnevaluationquestions),
                 'turn_evaluation_questions_json' => $turnevaluationquestionsjson,
                 'min_turns' => $this->page->min_turns ?? null,
                 'has_min_turns' => ($this->page->min_turns !== null),
                 'max_turns' => $this->page->max_turns ?? null,
-                'has_max_turns' => ($this->page->max_turns !== null)
+                'has_max_turns' => ($this->page->max_turns !== null),
+                'min_qa_questions' => $this->page->min_qa_questions ?? null,
+                'has_min_qa_questions' => ($this->page->min_qa_questions !== null),
+                'max_qa_questions' => $this->page->max_qa_questions ?? null,
+                'has_max_qa_questions' => ($this->page->max_qa_questions !== null)
             ];
         } else {
             // Ensure aichatdata is always an array, even if not an aichat page
             $aichatdata = [
                 'models' => [],
                 'has_models' => false,
+                'has_page_evaluation_questions' => false,
                 'behavior' => 'continuous',
                 'is_turns_mode' => false,
                 'is_qa_mode' => false,
+                'is_review_mode' => false,
                 'conversation_history' => [],
                 'has_history' => false,
+                'review_threads' => [],
+                'has_review_threads' => false,
+                'has_review_dataset' => false,
+                'review_default_thread_id' => null,
+                'review_dataset_filename' => '',
                 'turn_evaluation_questions' => [],
                 'has_turn_evaluation_questions' => false,
-                'turn_evaluation_questions_json' => ''
+                'turn_evaluation_questions_json' => '',
+                'has_min_qa_questions' => false,
+                'has_max_qa_questions' => false
             ];
         }
 
@@ -1172,6 +1225,7 @@ class page_view implements renderable, templatable {
             'can_navigate' => $this->cannavigate,
             'questions' => $questionslist,
             'has_questions' => !empty($questionslist),
+            'show_page_questions' => !empty($questionslist) && (!$isreviewmode || !empty($aichatdata['has_review_dataset'] ?? false)),
             'has_non_aiconversation_questions' => $hasnonaiconversationquestions,
             'turn_evaluation_questions' => $turnevaluationquestions,
             'has_turn_evaluation_questions' => !empty($turnevaluationquestions),

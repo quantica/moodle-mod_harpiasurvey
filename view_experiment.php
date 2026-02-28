@@ -16,6 +16,7 @@
 
 require(__DIR__.'/../../config.php');
 require_once(__DIR__.'/lib.php');
+require_once(__DIR__.'/locallib.php');
 
 // Course module id - can come from URL or form submission.
 $id = optional_param('id', 0, PARAM_INT);
@@ -168,6 +169,7 @@ $tab = optional_param('tab', 'pages', PARAM_ALPHA);
 
 // Check if we're editing a page - if so, load JavaScript for question bank modal.
 $pageid = optional_param('page', 0, PARAM_INT);
+$finalize = optional_param('finalize', 0, PARAM_INT);
 $edit = optional_param('edit', 0, PARAM_INT);
 $turn = optional_param('turn', null, PARAM_INT);
 if ($pageid && $edit) {
@@ -177,6 +179,9 @@ if ($pageid && $edit) {
         $PAGE->user_is_editing()
     ]);
 }
+
+$isfinalizeview = ((int)$finalize === 1 && $tab === 'pages');
+$userfinalized = mod_harpiasurvey_is_experiment_finalized_for_user((int)$experiment->id, (int)$USER->id);
 
 // Enforce only-forward navigation for non-owners/non-admins.
 $navigation_mode = $experiment->navigation_mode ?? 'free_navigation';
@@ -211,7 +216,9 @@ if (!$cannavigate && $navigation_mode === 'only_forward' && !empty($pages)) {
     $maxallowedindex = max(0, $maxindex + 1);
     $requestedindex = ($pageid && isset($pageindex[$pageid])) ? $pageindex[$pageid] : $maxallowedindex;
     $targetindex = null;
-    if (!$pageid) {
+    if ($isfinalizeview) {
+        // Allow reaching the virtual finalize page from the end.
+    } else if (!$pageid) {
         $targetindex = $maxallowedindex;
     } else if ($requestedindex < $maxindex) {
         $targetindex = $maxindex;
@@ -248,7 +255,7 @@ $formhtml = '';
 $pageviewhtml = '';
 
 // For students: auto-redirect to first available page if no page is selected.
-if (!$canmanage && !$pageid && !empty($pages)) {
+if (!$canmanage && !$pageid && !$isfinalizeview && !empty($pages)) {
     $firstpage = reset($pages);
     redirect(new moodle_url('/mod/harpiasurvey/view_experiment.php', [
         'id' => $cm->id,
@@ -257,7 +264,30 @@ if (!$canmanage && !$pageid && !empty($pages)) {
     ]));
 }
 
-if ($pageid) {
+if ($isfinalizeview && !$edit) {
+    $finalizationrecord = mod_harpiasurvey_get_experiment_finalization_record((int)$experiment->id, (int)$USER->id);
+    $finalizedat = $finalizationrecord ? userdate($finalizationrecord->timemodified) : '';
+    $pageviewhtml = $OUTPUT->render_from_template('mod_harpiasurvey/finalize_experiment_page', [
+        'cmid' => $cm->id,
+        'experimentid' => $experiment->id,
+        'is_finalized' => (bool)$finalizationrecord,
+        'finalized_at' => $finalizedat
+    ]);
+    // Synthetic viewing page marker for tab highlighting in experiment view.
+    $viewingpage = (object)[
+        'id' => 0,
+        'title' => get_string('finalizeexperimentpage', 'mod_harpiasurvey')
+    ];
+
+    if (!$canmanage) {
+        $PAGE->requires->js_call_amd('mod_harpiasurvey/navigation_control', 'init', [$cannavigate]);
+    }
+    $PAGE->requires->js_call_amd('mod_harpiasurvey/finalize_experiment', 'init', [
+        $cm->id,
+        $experiment->id,
+        $userfinalized
+    ]);
+} else if ($pageid) {
     // For students, verify the page is available.
     $conditions = ['id' => $pageid, 'experimentid' => $experiment->id];
     if (!$canmanage) {
@@ -283,6 +313,10 @@ if ($pageid) {
         // Set min_turns and max_turns - use empty string instead of null for form compatibility.
         $formdata->min_turns = isset($viewingpage->min_turns) && $viewingpage->min_turns !== null ? (int)$viewingpage->min_turns : '';
         $formdata->max_turns = isset($viewingpage->max_turns) && $viewingpage->max_turns !== null ? (int)$viewingpage->max_turns : '';
+        $formdata->min_qa_questions = isset($viewingpage->min_qa_questions) && $viewingpage->min_qa_questions !== null ?
+            (int)$viewingpage->min_qa_questions : '';
+        $formdata->max_qa_questions = isset($viewingpage->max_qa_questions) && $viewingpage->max_qa_questions !== null ?
+            (int)$viewingpage->max_qa_questions : '';
         $formdata->available = $viewingpage->available;
         
         $formurl = new moodle_url('/mod/harpiasurvey/edit_page.php', ['id' => $cm->id, 'experiment' => $experiment->id, 'page' => $pageid]);
@@ -297,6 +331,14 @@ if ($pageid) {
         }
         if (isset($formdataarray['max_turns'])) {
             $formdataarray['max_turns'] = $formdataarray['max_turns'] === '' || $formdataarray['max_turns'] === null ? '' : (string)(int)$formdataarray['max_turns'];
+        }
+        if (isset($formdataarray['min_qa_questions'])) {
+            $formdataarray['min_qa_questions'] = $formdataarray['min_qa_questions'] === '' || $formdataarray['min_qa_questions'] === null
+                ? '' : (string)(int)$formdataarray['min_qa_questions'];
+        }
+        if (isset($formdataarray['max_qa_questions'])) {
+            $formdataarray['max_qa_questions'] = $formdataarray['max_qa_questions'] === '' || $formdataarray['max_qa_questions'] === null
+                ? '' : (string)(int)$formdataarray['max_qa_questions'];
         }
         $form->set_data($formdataarray);
         
@@ -358,14 +400,24 @@ if ($pageid) {
         
         // Load JavaScript for AI conversation (only in view mode, not edit mode).
         if ($viewingpage->type === 'aichat') {
-            // Use the main init function which detects and initializes the appropriate module
-            $PAGE->requires->js_call_amd('mod_harpiasurvey/ai_conversation', 'init');
+            if (($viewingpage->behavior ?? 'continuous') === 'review_conversation') {
+                $PAGE->requires->js_call_amd('mod_harpiasurvey/review_conversation', 'init');
+            } else {
+                // Use the main init function which detects and initializes the appropriate module.
+                $PAGE->requires->js_call_amd('mod_harpiasurvey/ai_conversation', 'init');
+            }
         }
         
         // Load JavaScript for navigation control (only in view mode, not edit mode, and only for non-admins).
         if (!$canmanage) {
             $PAGE->requires->js_call_amd('mod_harpiasurvey/navigation_control', 'init', [$cannavigate]);
         }
+
+        $PAGE->requires->js_call_amd('mod_harpiasurvey/finalize_experiment', 'init', [
+            $cm->id,
+            $experiment->id,
+            $userfinalized
+        ]);
     }
 }
 
@@ -401,7 +453,9 @@ $experimentview = new \mod_harpiasurvey\output\experiment_view(
     $cannavigate,
     $navigation_mode,
     $tab,
-    $modelshtml
+    $modelshtml,
+    $isfinalizeview,
+    true
 );
 $renderer = $PAGE->get_renderer('mod_harpiasurvey');
 echo $renderer->render_experiment_view($experimentview);

@@ -64,6 +64,7 @@ class page extends \moodleform {
      * @throws \coding_exception
      */
     public function definition() {
+        global $DB;
         $mform = $this->_form;
 
         // Hidden fields.
@@ -113,6 +114,7 @@ class page extends \moodleform {
         if (!isset($customdata->id)) {
             $customdata->id = null;
         }
+        $pageid = !empty($customdata->id) ? (int)$customdata->id : 0;
 
         $editordata = file_prepare_standard_editor(
             $customdata,
@@ -170,6 +172,7 @@ class page extends \moodleform {
             'qa' => get_string('pagebehaviorqa', 'mod_harpiasurvey'),
             'continuous' => get_string('pagebehaviorcontinuous', 'mod_harpiasurvey'),
             'turns' => get_string('pagebehaviorturns', 'mod_harpiasurvey'),
+            'review_conversation' => get_string('pagebehaviorreviewconversation', 'mod_harpiasurvey'),
         ];
         $mform->addElement('select', 'behavior', get_string('pagebehavior', 'mod_harpiasurvey'), $behavioroptions);
         $mform->addHelpButton('behavior', 'pagebehavior', 'mod_harpiasurvey');
@@ -204,8 +207,65 @@ class page extends \moodleform {
             $mform->setDefault('max_turns', (string)(int)$this->_customdata->max_turns);
         }
 
+        // Min Q&A questions field (only for Q&A behavior).
+        $mform->addElement('text', 'min_qa_questions', get_string('minqaquestions', 'mod_harpiasurvey'), ['size' => '5']);
+        $mform->setType('min_qa_questions', PARAM_INT);
+        $mform->addHelpButton('min_qa_questions', 'minqaquestions', 'mod_harpiasurvey');
+        $mform->hideIf('min_qa_questions', 'type', 'neq', 'aichat');
+        $mform->hideIf('min_qa_questions', 'behavior', 'neq', 'qa');
+        if (isset($this->_customdata->min_qa_questions) && $this->_customdata->min_qa_questions !== '' &&
+                $this->_customdata->min_qa_questions !== null) {
+            $mform->setDefault('min_qa_questions', (string)(int)$this->_customdata->min_qa_questions);
+        }
+
+        // Max Q&A questions field (only for Q&A behavior).
+        $mform->addElement('text', 'max_qa_questions', get_string('maxqaquestions', 'mod_harpiasurvey'), ['size' => '5']);
+        $mform->setType('max_qa_questions', PARAM_INT);
+        $mform->addHelpButton('max_qa_questions', 'maxqaquestions', 'mod_harpiasurvey');
+        $mform->hideIf('max_qa_questions', 'type', 'neq', 'aichat');
+        $mform->hideIf('max_qa_questions', 'behavior', 'neq', 'qa');
+        if (isset($this->_customdata->max_qa_questions) && $this->_customdata->max_qa_questions !== '' &&
+                $this->_customdata->max_qa_questions !== null) {
+            $mform->setDefault('max_qa_questions', (string)(int)$this->_customdata->max_qa_questions);
+        }
+
+        // Review conversation CSV upload (only for review behavior).
+        $reviewcsvdraftid = file_get_submitted_draft_itemid('reviewconversationcsv');
+        if (!empty($pageid)) {
+            file_prepare_draft_area(
+                $reviewcsvdraftid,
+                $this->context->id,
+                'mod_harpiasurvey',
+                'reviewcsv',
+                $pageid,
+                $this->get_reviewcsv_options()
+            );
+        }
+        $mform->addElement('filemanager', 'reviewconversationcsv', get_string('reviewconversationcsv', 'mod_harpiasurvey'), null, $this->get_reviewcsv_options());
+        $mform->addHelpButton('reviewconversationcsv', 'reviewconversationcsv', 'mod_harpiasurvey');
+        $mform->setDefault('reviewconversationcsv', $reviewcsvdraftid);
+        $mform->hideIf('reviewconversationcsv', 'type', 'neq', 'aichat');
+        $mform->hideIf('reviewconversationcsv', 'behavior', 'neq', 'review_conversation');
+
+        if ($pageid) {
+            $existingdataset = $DB->get_record('harpiasurvey_review_datasets', ['pageid' => $pageid]);
+            if ($existingdataset) {
+                $statustext = get_string('reviewdatasetstatus', 'mod_harpiasurvey') . ': ';
+                if ($existingdataset->status === 'ready') {
+                    $statustext .= get_string('reviewdatasetready', 'mod_harpiasurvey');
+                } else {
+                    $statustext .= get_string('reviewdataseterror', 'mod_harpiasurvey');
+                }
+                if (!empty($existingdataset->filename)) {
+                    $statustext .= ' (' . s($existingdataset->filename) . ')';
+                }
+                $mform->addElement('static', 'reviewdatasetstatus', '', '<div class="text-muted small mb-2">' . $statustext . '</div>');
+                $mform->hideIf('reviewdatasetstatus', 'type', 'neq', 'aichat');
+                $mform->hideIf('reviewdatasetstatus', 'behavior', 'neq', 'review_conversation');
+            }
+        }
+
         // Model selection (only for aichat pages).
-        global $DB;
         $harpiasurveyid = isset($this->_customdata->harpiasurveyid) ? $this->_customdata->harpiasurveyid : 0;
         $experimentid = isset($this->_customdata->experimentid) ? $this->_customdata->experimentid : 0;
         if ($harpiasurveyid && $experimentid) {
@@ -253,11 +313,13 @@ class page extends \moodleform {
                 // Only show when type is aichat.
                 // hideIf must be called after setDefault to ensure values are preserved.
                 $mform->hideIf('pagemodels', 'type', 'neq', 'aichat');
+                $mform->hideIf('pagemodels', 'behavior', 'eq', 'review_conversation');
             } else {
                 // Even if no models are available, add a message field to inform the user.
                 $mform->addElement('static', 'pagemodels_none', '', 
                     '<div class="alert alert-info">' . get_string('nomodelsavailable', 'mod_harpiasurvey') . '</div>');
                 $mform->hideIf('pagemodels_none', 'type', 'neq', 'aichat');
+                $mform->hideIf('pagemodels_none', 'behavior', 'eq', 'review_conversation');
             }
         }
 
@@ -318,7 +380,6 @@ class page extends \moodleform {
                 $questionstable .= '<tr>';
                 $questionstable .= '<th scope="col">' . get_string('question', 'mod_harpiasurvey') . '</th>';
                 $questionstable .= '<th scope="col">' . get_string('type', 'mod_harpiasurvey') . '</th>';
-                $questionstable .= '<th scope="col">' . get_string('enabled', 'mod_harpiasurvey') . '</th>';
                 $questionstable .= '<th scope="col">' . get_string('required') . '</th>';
                 if ($showturnfields) {
                     $questionstable .= '<th scope="col">' . get_string('showonlyturn', 'mod_harpiasurvey') . '</th>';
@@ -337,13 +398,6 @@ class page extends \moodleform {
                     $questionstable .= '<tr>';
                     $questionstable .= '<td>' . format_string($pq->name) . '</td>';
                     $questionstable .= '<td>' . get_string('type' . $pq->type, 'mod_harpiasurvey') . '</td>';
-                    
-                    // Enabled checkbox.
-                    $enabledid = 'question_enabled_' . $pq->id;
-                    $enabledchecked = $pq->enabled ? 'checked' : '';
-                    $questionstable .= '<td>';
-                    $questionstable .= '<input type="checkbox" id="' . $enabledid . '" name="question_enabled[' . $pq->id . ']" value="1" ' . $enabledchecked . '>';
-                    $questionstable .= '</td>';
 
                     // Required checkbox.
                     $requiredid = 'question_required_' . $pq->id;
@@ -462,6 +516,21 @@ class page extends \moodleform {
     }
 
     /**
+     * File manager options for review-conversation CSV.
+     *
+     * @return array
+     */
+    private function get_reviewcsv_options(): array {
+        return [
+            'subdirs' => 0,
+            'maxfiles' => 1,
+            'maxbytes' => 0,
+            'accepted_types' => ['.csv'],
+            'return_types' => FILE_INTERNAL,
+        ];
+    }
+
+    /**
      * Override definition_after_data to ensure autocomplete values are set correctly.
      */
     public function definition_after_data() {
@@ -500,6 +569,24 @@ class page extends \moodleform {
             $currentvalue = $mform->getElementValue('max_turns');
             if ($currentvalue === null || (is_array($currentvalue) && empty($currentvalue))) {
                 $mform->setDefault('max_turns', $maxturnsvalue);
+            }
+        }
+
+        if (isset($this->_customdata->min_qa_questions) && $mform->elementExists('min_qa_questions')) {
+            $minqa = $this->_customdata->min_qa_questions;
+            $minqavalue = ($minqa === '' || $minqa === null) ? '' : (string)(int)$minqa;
+            $currentvalue = $mform->getElementValue('min_qa_questions');
+            if ($currentvalue === null || (is_array($currentvalue) && empty($currentvalue))) {
+                $mform->setDefault('min_qa_questions', $minqavalue);
+            }
+        }
+
+        if (isset($this->_customdata->max_qa_questions) && $mform->elementExists('max_qa_questions')) {
+            $maxqa = $this->_customdata->max_qa_questions;
+            $maxqavalue = ($maxqa === '' || $maxqa === null) ? '' : (string)(int)$maxqa;
+            $currentvalue = $mform->getElementValue('max_qa_questions');
+            if ($currentvalue === null || (is_array($currentvalue) && empty($currentvalue))) {
+                $mform->setDefault('max_qa_questions', $maxqavalue);
             }
         }
         
@@ -549,6 +636,44 @@ class page extends \moodleform {
             // Max turns must be >= min turns if both are set.
             if ($minturns !== null && $maxturns !== null && $maxturns < $minturns) {
                 $errors['max_turns'] = get_string('maxturnsmustbegreaterthanminturns', 'mod_harpiasurvey');
+            }
+        }
+
+        // Validate min/max Q&A questions if behavior is QA.
+        if (isset($data['behavior']) && $data['behavior'] === 'qa') {
+            $minqa = !empty($data['min_qa_questions']) ? (int)$data['min_qa_questions'] : null;
+            $maxqa = !empty($data['max_qa_questions']) ? (int)$data['max_qa_questions'] : null;
+
+            if ($minqa !== null && $minqa < 1) {
+                $errors['min_qa_questions'] = get_string('invalidnumber', 'mod_harpiasurvey');
+            }
+
+            if ($maxqa !== null && $maxqa < 1) {
+                $errors['max_qa_questions'] = get_string('invalidnumber', 'mod_harpiasurvey');
+            }
+
+            if ($minqa !== null && $maxqa !== null && $maxqa < $minqa) {
+                $errors['max_qa_questions'] = get_string('maxqaquestionsmustbegreaterthanminqaquestions', 'mod_harpiasurvey');
+            }
+        }
+
+        if (($data['type'] ?? '') === 'aichat' && ($data['behavior'] ?? '') === 'review_conversation') {
+            $draftid = !empty($data['reviewconversationcsv']) ? (int)$data['reviewconversationcsv'] : 0;
+            $hasdraftfile = false;
+            if ($draftid > 0) {
+                $draftinfo = file_get_draft_area_info($draftid);
+                $hasdraftfile = !empty($draftinfo['filecount']);
+            }
+
+            $pageid = !empty($data['id']) ? (int)$data['id'] : 0;
+            $hasexistingdataset = false;
+            if ($pageid > 0) {
+                global $DB;
+                $hasexistingdataset = $DB->record_exists('harpiasurvey_review_datasets', ['pageid' => $pageid, 'status' => 'ready']);
+            }
+
+            if (!$hasdraftfile && !$hasexistingdataset) {
+                $errors['reviewconversationcsv'] = get_string('required');
             }
         }
         

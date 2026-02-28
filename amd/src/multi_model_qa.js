@@ -13,6 +13,47 @@ let handlersRegistered = false;
 const qaEvaluationSaved = {};
 let editLabel = 'Edit';
 
+const getMultiQaContainer = (pageid) => $(`.multi-model-chat-container[data-pageid="${pageid}"]`);
+
+const getQaQuestionCount = (pageid, modelid) => {
+    const list = $(`.qa-questions-list[data-pageid="${pageid}"][data-model-id="${modelid}"]`);
+    if (list.length === 0) {
+        return 0;
+    }
+    return list.find('.qa-question-item').length;
+};
+
+const getQaMaxQuestions = (pageid) => {
+    const container = getMultiQaContainer(pageid);
+    if (container.length === 0) {
+        return null;
+    }
+    const value = parseInt(container.data('max-qa-questions') || container.attr('data-max-qa-questions'), 10);
+    return Number.isFinite(value) && value > 0 ? value : null;
+};
+
+const isQaQuestionLimitReached = (pageid, modelid) => {
+    const maxQuestions = getQaMaxQuestions(pageid);
+    if (!maxQuestions) {
+        return false;
+    }
+    return getQaQuestionCount(pageid, modelid) >= maxQuestions;
+};
+
+const notifyQaMaxQuestionsReached = () => {
+    getString('maxqaquestionsreached', 'mod_harpiasurvey').then((message) => {
+        Notification.addNotification({
+            message: message,
+            type: 'warning'
+        });
+    }).catch(() => {
+        Notification.addNotification({
+            message: 'Maximum number of questions reached. You cannot add more questions.',
+            type: 'warning'
+        });
+    });
+};
+
 const lockQuestionItem = (questionItem) => {
     questionItem.attr('data-response-locked', '1');
     questionItem.removeAttr('data-response-editing');
@@ -104,6 +145,9 @@ const initialize = () => {
             if (messagesContainer.find('.message[data-role="assistant"]').length > 0) {
                 lockQaInput(pageid, modelid);
             }
+            if (isQaQuestionLimitReached(pageid, modelid)) {
+                lockQaInput(pageid, modelid);
+            }
 
             const activeId = parseInt(pane.data('qa-active-id'), 10);
             if (activeId) {
@@ -130,6 +174,10 @@ function registerHandlers() {
 
         if (!cmid || !pageid || !modelid) {
             addError('Missing cmid, pageid or modelid');
+            return;
+        }
+        if (isQaQuestionLimitReached(pageid, modelid)) {
+            notifyQaMaxQuestionsReached();
             return;
         }
 
@@ -195,6 +243,10 @@ function registerHandlers() {
         if (!pageid || !modelid) {
             return;
         }
+        if (isQaQuestionLimitReached(pageid, modelid)) {
+            notifyQaMaxQuestionsReached();
+            return;
+        }
 
         if (hasUnsavedQaEvaluation(pageid, modelid)) {
             getString('qarequiresave', 'mod_harpiasurvey').then((message) => {
@@ -224,6 +276,35 @@ function registerHandlers() {
             return;
         }
         selectQaQuestion(pageid, modelid, questionId);
+    });
+
+    $(document).on('click', '.multi-model-chat-container[data-behavior="qa"] .export-conversation-btn', function(e) {
+        e.preventDefault();
+        const button = $(this);
+        const pageid = parseInt(button.data('pageid'), 10);
+        const cmid = parseInt(button.data('cmid'), 10);
+        const modelid = parseInt(button.data('model-id') || button.data('modelId'), 10);
+        if (!pageid || !cmid) {
+            addError('Missing required data to export conversation');
+            return;
+        }
+
+        const pane = $(`#model-pane-${modelid}-${pageid}`);
+        const activeId = parseInt(pane.data('qa-active-id') || pane.attr('data-qa-active-id'), 10);
+
+        const params = new URLSearchParams();
+        params.append('action', 'export_conversation');
+        params.append('cmid', cmid);
+        params.append('pageid', pageid);
+        params.append('sesskey', Config.sesskey);
+        if (modelid && !isNaN(modelid)) {
+            params.append('modelid', modelid);
+        }
+        if (activeId && !isNaN(activeId)) {
+            params.append('turn_id', activeId);
+        }
+
+        window.open(Config.wwwroot + '/mod/harpiasurvey/ajax.php?' + params.toString(), '_blank');
     });
 
     $(document).on('click', '.multi-model-chat-container[data-behavior="qa"] .qa-evaluation-questions-container .save-turn-evaluation-questions-btn', function(e) {
@@ -324,13 +405,20 @@ const resetQaView = (pageid, modelid) => {
     const input = $(`#chat-input-model-${modelid}-${pageid}`);
     if (input.length > 0) {
         input.val('');
-        input.prop('disabled', false);
+        const limitReached = isQaQuestionLimitReached(pageid, modelid);
+        input.prop('disabled', limitReached);
         const pane = $(`#model-pane-${modelid}-${pageid}`);
-        pane.find('.input-group').show();
+        if (limitReached) {
+            pane.find('.input-group').hide();
+        } else {
+            pane.find('.input-group').show();
+        }
         const sendButton = $(`#send-message-btn-model-${modelid}-${pageid}`);
-        sendButton.prop('disabled', false);
+        sendButton.prop('disabled', limitReached);
         pane.find('.qa-question-item').removeClass('active');
-        input.focus();
+        if (!limitReached) {
+            input.focus();
+        }
     }
 
     const evalContainer = $(`#qa-evaluation-questions-container-model-${modelid}-${pageid}`);
@@ -459,6 +547,11 @@ const selectQaQuestion = (pageid, modelid, questionId) => {
         renderQaEvaluationQuestions(pageid, modelid, evalId).then(() => {
             loadQaEvaluationResponses(pageid, modelid, evalId);
         });
+    } else {
+        const evalContainer = $(`#qa-evaluation-questions-container-model-${modelid}-${pageid}`);
+        if (evalContainer.length > 0) {
+            evalContainer.html('<div class="text-muted small py-2">Evaluation will be available after the model response is received.</div>');
+        }
     }
 };
 
@@ -489,6 +582,7 @@ const updateQaQuestionItemId = (pageid, modelid, newId) => {
     const lastItem = list.find('.qa-question-item').last();
     if (lastItem.length > 0) {
         lastItem.attr('data-question-id', newId);
+        lastItem.data('question-id', newId);
     }
 };
 

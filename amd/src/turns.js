@@ -125,10 +125,12 @@ const initialize = () => {
         const urlBranch = urlParams.get('branch');
 
         let initialViewingTurn = currentTurns[pageid];
+        let hasExplicitInitialTurn = false;
         if (urlTurn !== null && urlTurn !== '') {
             const parsedTurn = parseInt(urlTurn, 10);
             if (!isNaN(parsedTurn) && parsedTurn > 0) {
                 initialViewingTurn = parsedTurn;
+                hasExplicitInitialTurn = true;
             }
         }
 
@@ -141,9 +143,14 @@ const initialize = () => {
             }
         }
 
-        setViewingTurn(pageid, initialViewingTurn);
-        updateTurnDisplay(pageid);
-        updateChatLockState(pageid);
+        const shouldAutoloadSelection = hasExplicitInitialTurn || maxTurn === 0;
+        if (shouldAutoloadSelection) {
+            setViewingTurn(pageid, initialViewingTurn);
+            updateTurnDisplay(pageid);
+            updateChatLockState(pageid);
+        } else {
+            setNoTurnSelectedState(pageid);
+        }
         
         // Load conversation tree first, then filter messages (tree is needed to determine pathway).
         if (sidebar.length > 0) {
@@ -151,26 +158,34 @@ const initialize = () => {
             $(`.toggle-tree-btn[data-pageid="${pageid}"]`).addClass('active');
             // Load tree first, then filter messages once tree is loaded.
             loadConversationTree(pageid).then(() => {
-                // Tree loaded - now filter messages based on the pathway.
-                filterMessagesByTurn(pageid, initialViewingTurn);
+                if (shouldAutoloadSelection) {
+                    // Tree loaded - now filter messages based on the pathway.
+                    filterMessagesByTurn(pageid, initialViewingTurn);
+                }
             }).catch(() => {
-                // If tree loading fails, still filter with just the current turn.
-                filterMessagesByTurn(pageid, initialViewingTurn);
+                if (shouldAutoloadSelection) {
+                    // If tree loading fails, still filter with just the current turn.
+                    filterMessagesByTurn(pageid, initialViewingTurn);
+                }
             });
         } else {
-            // No sidebar - filter immediately (will only show current turn if tree not available).
-            filterMessagesByTurn(pageid, initialViewingTurn);
+            if (shouldAutoloadSelection) {
+                // No sidebar - filter immediately (will only show current turn if tree not available).
+                filterMessagesByTurn(pageid, initialViewingTurn);
+            }
         }
         
         updateSubpageVisibility(pageid);
-        setTimeout(() => {
-            ensureTurnEvaluationQuestionsRendered(pageid, initialViewingTurn).then(() => {
-                loadTurnEvaluationResponses(pageid, initialViewingTurn);
-            }).catch((error) => {
-                // eslint-disable-next-line no-console
-                console.error('Error loading turn evaluation questions on init:', error);
-            });
-        }, 100);
+        if (shouldAutoloadSelection) {
+            setTimeout(() => {
+                ensureTurnEvaluationQuestionsRendered(pageid, initialViewingTurn).then(() => {
+                    loadTurnEvaluationResponses(pageid, initialViewingTurn);
+                }).catch((error) => {
+                    // eslint-disable-next-line no-console
+                    console.error('Error loading turn evaluation questions on init:', error);
+                });
+            }, 100);
+        }
     });
 
     registerCommonHandlers();
@@ -474,6 +489,21 @@ function registerTreeHandlers() {
             });
             return;
         }
+        const currentViewingTurn = getViewingTurn(pageid);
+        if (currentViewingTurn && hasUnsavedTurnEvaluation(pageid, currentViewingTurn)) {
+            getString('turnrequiresave', 'mod_harpiasurvey').then((message) => {
+                Notification.addNotification({
+                    message: message,
+                    type: 'warning'
+                });
+            }).catch(() => {
+                Notification.addNotification({
+                    message: 'Please save the evaluation answers before creating a new turn.',
+                    type: 'warning'
+                });
+            });
+            return;
+        }
         if (hasUnsavedTurnEvaluation(pageid, turnId)) {
             getString('turnrequiresave', 'mod_harpiasurvey').then((message) => {
                 Notification.addNotification({
@@ -544,6 +574,21 @@ function registerTreeHandlers() {
             });
             return;
         }
+        const currentViewingTurn = getViewingTurn(pageid);
+        if (currentViewingTurn && hasUnsavedTurnEvaluation(pageid, currentViewingTurn)) {
+            getString('turnrequiresave', 'mod_harpiasurvey').then((message) => {
+                Notification.addNotification({
+                    message: message,
+                    type: 'warning'
+                });
+            }).catch(() => {
+                Notification.addNotification({
+                    message: 'Please save the evaluation answers before creating a new turn.',
+                    type: 'warning'
+                });
+            });
+            return;
+        }
         if (hasUnsavedTurnEvaluation(pageid, parentTurnId)) {
             getString('turnrequiresave', 'mod_harpiasurvey').then((message) => {
                 Notification.addNotification({
@@ -572,6 +617,21 @@ function registerTreeHandlers() {
             Notification.addNotification({
                 message: 'Missing required data to create root',
                 type: 'error'
+            });
+            return;
+        }
+        const viewingTurn = getViewingTurn(pageid);
+        if (viewingTurn && hasUnsavedTurnEvaluation(pageid, viewingTurn)) {
+            getString('turnrequiresave', 'mod_harpiasurvey').then((message) => {
+                Notification.addNotification({
+                    message: message,
+                    type: 'warning'
+                });
+            }).catch(() => {
+                Notification.addNotification({
+                    message: 'Please save the evaluation answers before creating a new turn.',
+                    type: 'warning'
+                });
             });
             return;
         }
@@ -835,6 +895,31 @@ const setViewingTurn = (pageid, turn) => {
     syncTurnsUrlState(pageid, turn);
 };
 
+const setNoTurnSelectedState = (pageid) => {
+    const messagesContainer = $(`#chat-messages-page-${pageid}`);
+    const container = messagesContainer.closest('.ai-conversation-container');
+    messagesContainer.find('.message').hide();
+
+    const evalContainer = $(`#turn-evaluation-questions-container-${pageid}`);
+    if (evalContainer.length > 0) {
+        evalContainer.empty();
+    }
+
+    const badge = $(`#current-turn-badge-${pageid}`);
+    if (badge.length > 0) {
+        badge.hide();
+    }
+
+    // If there is existing history, require an explicit turn selection before sending.
+    if (messagesContainer.find('.message[data-turn-id]').length > 0) {
+        const input = $(`#chat-input-page-${pageid}`);
+        const sendButton = $(`.chat-send-btn[data-pageid="${pageid}"]`).first();
+        input.prop('disabled', true);
+        sendButton.prop('disabled', true);
+        container.removeAttr('data-viewing-turn');
+    }
+};
+
 /**
  * Update current turn display in UI.
  *
@@ -842,9 +927,17 @@ const setViewingTurn = (pageid, turn) => {
  */
 const updateTurnDisplay = (pageid) => {
     const viewingTurn = getViewingTurn(pageid);
-    const label = $(`#current-turn-label-${pageid}`);
+    const badge = $(`#current-turn-badge-${pageid}`);
+    const label = $(`#current-turn-number-${pageid}`);
+    if (badge.length > 0) {
+        badge.show();
+    }
     if (label.length > 0) {
-        label.text(viewingTurn);
+        getString('turn', 'mod_harpiasurvey').then((turnStr) => {
+            label.text(`${turnStr} ${viewingTurn}`);
+        }).catch(() => {
+            label.text(`Turn ${viewingTurn}`);
+        });
     }
 };
 
@@ -1743,25 +1836,30 @@ const loadConversationTree = (pageid) => {
             // Store tree for message filtering.
             conversationTrees[pageid] = data.tree;
 
-            const viewingTurn = getViewingTurn(pageid);
+            const chatContainer = $(`#chat-messages-page-${pageid}`).closest('.ai-conversation-container');
+            const hasExplicitViewingTurn = typeof chatContainer.attr('data-viewing-turn') !== 'undefined' &&
+                chatContainer.attr('data-viewing-turn') !== '';
+            const viewingTurn = hasExplicitViewingTurn ? getViewingTurn(pageid) : null;
             const viewMode = sidebar.data('sidebar-view');
             const branchRootId = sidebar.data('branch-root');
             if (!viewMode || viewMode === 'list') {
                 renderConversationList(pageid, data.tree.roots);
             } else {
                 const root = branchRootId ? findNodeByTurnId(data.tree.roots || [], branchRootId) :
-                    findRootForTurn(data.tree.roots || [], viewingTurn);
+                    (viewingTurn ? findRootForTurn(data.tree.roots || [], viewingTurn) : null);
                 if (root) {
                     renderConversationDetail(pageid, root);
                 } else {
                     renderConversationList(pageid, data.tree.roots);
                 }
             }
-            syncTurnsUrlState(pageid, viewingTurn);
+            if (hasExplicitViewingTurn && viewingTurn) {
+                syncTurnsUrlState(pageid, viewingTurn);
 
-            // Re-filter messages now that we have the tree, so previous-turn messages are correctly
-            // marked and hidden by default, with the toggle controlling them.
-            filterMessagesByTurn(pageid, viewingTurn);
+                // Re-filter messages now that we have the tree, so previous-turn messages are correctly
+                // marked and hidden by default, with the toggle controlling them.
+                filterMessagesByTurn(pageid, viewingTurn);
+            }
 
             // Show create-root button only when in list view (outside a conversation).
             const rootBtn = sidebar.find('.create-root-btn');
@@ -1819,9 +1917,9 @@ const getTurnNumberForId = (pageid, turnId) => {
             const sortedDB = [...node.direct_branches].sort((a, b) =>
                 parseInt(a.turn_id, 10) - parseInt(b.turn_id, 10)
             );
-            let dbCounter = turnIndex + 1; // Continue sequential numbering
-            for (const db of sortedDB) {
-                const dbNumber = calculateTurnNumber(db, dbCounter, null);
+            for (let i = 0; i < sortedDB.length; i++) {
+                const db = sortedDB[i];
+                const dbNumber = calculateTurnNumber(db, i, nodeNumber);
                 if (parseInt(db.turn_id, 10) === parseInt(targetId, 10)) {
                     return dbNumber;
                 }
@@ -1837,7 +1935,6 @@ const getTurnNumberForId = (pageid, turnId) => {
                         }
                     }
                 }
-                dbCounter++;
             }
         }
 
@@ -1908,11 +2005,11 @@ const renderConversationDetail = (pageid, root) => {
 
     sidebar.data('branch-root', root.turn_id);
 
-    // Calculate turn numbers: root is 1, then direct branches are 2, 3, 4...
-    // All turns at root level (root + direct branches) are numbered sequentially.
+    // Calculate turn numbers: root is 1, direct siblings are 1.1, 1.2, 1.3...
     let turnCounter = 0; // Will be incremented to 1 for root, 2 for first direct branch, etc.
     const rootTurnNumber = getTurnNumberForId(pageid, root.turn_id) || '1';
     const rootNodeData = prepareNodeData(root, 0, viewingTurn, pageid, cmid, turnCounter, null, false, rootTurnNumber);
+    rootNodeData.suppress_inline_branch_button = true; // First turn in conversation.
     turnCounter++;
 
     // Find direct branches of this root (branches where parent is this root).
@@ -1923,24 +2020,26 @@ const renderConversationDetail = (pageid, root) => {
         const sortedDirectBranches = [...childBranches].sort((a, b) =>
             parseInt(a.turn_id, 10) - parseInt(b.turn_id, 10)
         );
-        sortedDirectBranches.forEach((node) => {
+        sortedDirectBranches.forEach((node, index) => {
             const childTurnNumber = getTurnNumberForId(pageid, node.turn_id) ||
-                calculateTurnNumber(node, turnCounter, null);
-            // Direct branches continue sequential numbering: 2, 3, 4...
-            // Level 1 so they render visually indented under the root they forked from.
+                calculateTurnNumber(node, index, rootTurnNumber);
+            // Direct siblings are numbered relative to the original turn: 1.1, 1.2, ...
             directBranches.push(prepareNodeData(
                 node,
                 0,
                 viewingTurn,
                 pageid,
                 cmid,
-                turnCounter,
-                null,
+                index,
+                rootTurnNumber,
                 false,
                 childTurnNumber
             ));
             turnCounter++;
         });
+        if (directBranches.length > 0) {
+            directBranches[directBranches.length - 1].suppress_inline_branch_button = true; // Last turn in conversation.
+        }
     }
 
     Templates.render('mod_harpiasurvey/conversation_detail', {

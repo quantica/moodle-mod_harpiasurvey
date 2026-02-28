@@ -14,6 +14,47 @@ let handlersRegistered = false;
 const qaEvaluationSaved = {};
 let editLabel = 'Edit';
 
+const getQaContainer = (pageid) => $(`.ai-conversation-container[data-pageid="${pageid}"]`);
+
+const getQaQuestionCount = (pageid) => {
+    const list = $(`.qa-questions-list[data-pageid="${pageid}"]`);
+    if (list.length === 0) {
+        return 0;
+    }
+    return list.find('.qa-question-item').length;
+};
+
+const getQaMaxQuestions = (pageid) => {
+    const container = getQaContainer(pageid);
+    if (container.length === 0) {
+        return null;
+    }
+    const value = parseInt(container.data('max-qa-questions') || container.attr('data-max-qa-questions'), 10);
+    return Number.isFinite(value) && value > 0 ? value : null;
+};
+
+const isQaQuestionLimitReached = (pageid) => {
+    const maxQuestions = getQaMaxQuestions(pageid);
+    if (!maxQuestions) {
+        return false;
+    }
+    return getQaQuestionCount(pageid) >= maxQuestions;
+};
+
+const notifyQaMaxQuestionsReached = () => {
+    getString('maxqaquestionsreached', 'mod_harpiasurvey').then((message) => {
+        Notification.addNotification({
+            message: message,
+            type: 'warning'
+        });
+    }).catch(() => {
+        Notification.addNotification({
+            message: 'Maximum number of questions reached. You cannot add more questions.',
+            type: 'warning'
+        });
+    });
+};
+
 const lockQuestionItem = (questionItem) => {
     questionItem.attr('data-response-locked', '1');
     questionItem.removeAttr('data-response-editing');
@@ -94,6 +135,9 @@ const initialize = () => {
         if (messagesContainer.find('.message[data-role="assistant"]').length > 0) {
             lockQaInput(pageid);
         }
+        if (isQaQuestionLimitReached(pageid)) {
+            lockQaInput(pageid);
+        }
         if (activeId) {
             selectQaQuestion(pageid, activeId);
         }
@@ -114,6 +158,10 @@ function registerHandlers() {
         const pageid = parseInt(button.data('pageid'), 10);
         if (!cmid || !pageid) {
             addError('Missing cmid or pageid');
+            return;
+        }
+        if (isQaQuestionLimitReached(pageid)) {
+            notifyQaMaxQuestionsReached();
             return;
         }
         if (hasUnsavedQaEvaluation(pageid)) {
@@ -181,6 +229,10 @@ function registerHandlers() {
         if (!pageid) {
             return;
         }
+        if (isQaQuestionLimitReached(pageid)) {
+            notifyQaMaxQuestionsReached();
+            return;
+        }
         if (hasUnsavedQaEvaluation(pageid)) {
             getString('qarequiresave', 'mod_harpiasurvey').then((message) => {
                 Notification.addNotification({
@@ -198,7 +250,7 @@ function registerHandlers() {
         resetQaView(pageid);
     });
 
-    $(document).on('click', '.qa-question-item', function(e) {
+    $(document).on('click', '.ai-conversation-container[data-behavior="qa"] .qa-question-item', function(e) {
         e.preventDefault();
         const button = $(this);
         const pageid = parseInt(button.data('pageid'), 10);
@@ -209,7 +261,32 @@ function registerHandlers() {
         selectQaQuestion(pageid, questionId);
     });
 
-    $(document).on('click', '.qa-evaluation-questions-container .save-turn-evaluation-questions-btn', function(e) {
+    $(document).on('click', '.ai-conversation-container[data-behavior="qa"] .export-conversation-btn', function(e) {
+        e.preventDefault();
+        const button = $(this);
+        const pageid = parseInt(button.data('pageid'), 10);
+        const cmid = parseInt(button.data('cmid'), 10);
+        if (!pageid || !cmid) {
+            addError('Missing required data to export conversation');
+            return;
+        }
+
+        const container = getQaContainer(pageid);
+        const activeId = parseInt(container.data('qa-active-id') || container.attr('data-qa-active-id'), 10);
+
+        const params = new URLSearchParams();
+        params.append('action', 'export_conversation');
+        params.append('cmid', cmid);
+        params.append('pageid', pageid);
+        params.append('sesskey', Config.sesskey);
+        if (activeId && !isNaN(activeId)) {
+            params.append('turn_id', activeId);
+        }
+
+        window.open(Config.wwwroot + '/mod/harpiasurvey/ajax.php?' + params.toString(), '_blank');
+    });
+
+    $(document).on('click', '.ai-conversation-container[data-behavior="qa"] .qa-evaluation-questions-container .save-turn-evaluation-questions-btn', function(e) {
         e.preventDefault();
         e.stopPropagation();
         const button = $(this);
@@ -298,16 +375,23 @@ const resetQaView = (pageid) => {
     const input = $(`#chat-input-page-${pageid}`);
     if (input.length > 0) {
         input.val('');
-        input.prop('disabled', false);
+        const limitReached = isQaQuestionLimitReached(pageid);
+        input.prop('disabled', limitReached);
         const container = $(`.ai-conversation-container[data-pageid="${pageid}"]`);
         const inputGroup = container.find('.input-group');
         if (inputGroup.length > 0) {
-            inputGroup.show();
+            if (limitReached) {
+                inputGroup.hide();
+            } else {
+                inputGroup.show();
+            }
         }
         const sendButton = container.find('.chat-send-btn');
-        sendButton.prop('disabled', false);
+        sendButton.prop('disabled', limitReached);
         container.find('.qa-question-item').removeClass('active');
-        input.focus();
+        if (!limitReached) {
+            input.focus();
+        }
     }
     const evalContainer = $(`#qa-evaluation-questions-container-${pageid}`);
     if (evalContainer.length > 0) {
@@ -430,6 +514,11 @@ const selectQaQuestion = (pageid, questionId) => {
         renderQaEvaluationQuestions(pageid, evalId).then(() => {
             loadQaEvaluationResponses(pageid, evalId);
         });
+    } else {
+        const evalContainer = $(`#qa-evaluation-questions-container-${pageid}`);
+        if (evalContainer.length > 0) {
+            evalContainer.html('<div class="text-muted small py-2">Evaluation will be available after the model response is received.</div>');
+        }
     }
 };
 
@@ -459,6 +548,7 @@ const updateQaQuestionItemId = (pageid, newId) => {
     const lastItem = list.find('.qa-question-item').last();
     if (lastItem.length > 0) {
         lastItem.attr('data-question-id', newId);
+        lastItem.data('question-id', newId);
     }
 };
 

@@ -16,6 +16,7 @@
 
 require(__DIR__.'/../../config.php');
 require_once(__DIR__.'/lib.php');
+require_once(__DIR__.'/classes/local/review_conversation_importer.php');
 
 // Course module id - can come from URL or form submission.
 $id = optional_param('id', 0, PARAM_INT);
@@ -104,6 +105,8 @@ if ($pageid) {
     // Set min_turns and max_turns - use empty string instead of null for form compatibility.
     $formdata->min_turns = isset($page->min_turns) && $page->min_turns !== null ? (int)$page->min_turns : '';
     $formdata->max_turns = isset($page->max_turns) && $page->max_turns !== null ? (int)$page->max_turns : '';
+    $formdata->min_qa_questions = isset($page->min_qa_questions) && $page->min_qa_questions !== null ? (int)$page->min_qa_questions : '';
+    $formdata->max_qa_questions = isset($page->max_qa_questions) && $page->max_qa_questions !== null ? (int)$page->max_qa_questions : '';
     $formdata->available = $page->available;
 } else {
     $formdata->id = 0;
@@ -155,6 +158,12 @@ if (isset($formdataarray['min_turns'])) {
 if (isset($formdataarray['max_turns'])) {
     $formdataarray['max_turns'] = $formdataarray['max_turns'] === '' || $formdataarray['max_turns'] === null ? '' : (string)(int)$formdataarray['max_turns'];
 }
+if (isset($formdataarray['min_qa_questions'])) {
+    $formdataarray['min_qa_questions'] = $formdataarray['min_qa_questions'] === '' || $formdataarray['min_qa_questions'] === null ? '' : (string)(int)$formdataarray['min_qa_questions'];
+}
+if (isset($formdataarray['max_qa_questions'])) {
+    $formdataarray['max_qa_questions'] = $formdataarray['max_qa_questions'] === '' || $formdataarray['max_qa_questions'] === null ? '' : (string)(int)$formdataarray['max_qa_questions'];
+}
 $form->set_data($formdataarray);
 
 // Handle form submission.
@@ -202,6 +211,13 @@ if ($form->is_cancelled()) {
         $pagedata->min_turns = null;
         $pagedata->max_turns = null;
     }
+    if ($pagedata->behavior === 'qa') {
+        $pagedata->min_qa_questions = !empty($data->min_qa_questions) ? (int)$data->min_qa_questions : null;
+        $pagedata->max_qa_questions = !empty($data->max_qa_questions) ? (int)$data->max_qa_questions : null;
+    } else {
+        $pagedata->min_qa_questions = null;
+        $pagedata->max_qa_questions = null;
+    }
     $pagedata->available = isset($data->available) ? (int)$data->available : 1;
     $pagedata->timemodified = time();
 
@@ -224,41 +240,32 @@ if ($form->is_cancelled()) {
         $DB->update_record('harpiasurvey_pages', $pagedata);
         $pageid = $data->id;
         
-        // Handle question enabled states and turn visibility fields.
+        // Handle question states and turn visibility fields.
         // Get all page questions.
         $pagequestions = $DB->get_records('harpiasurvey_page_questions', ['pageid' => $data->id]);
         
+        $postedrequired = [];
+        if (isset($data->question_required) && is_array($data->question_required)) {
+            $postedrequired = $data->question_required;
+        } else if (isset($_POST['question_required']) && is_array($_POST['question_required'])) {
+            $postedrequired = $_POST['question_required'];
+        }
+
         foreach ($pagequestions as $pq) {
             $updated = false;
             
-            // Update enabled state (if checkbox data is provided).
-            if (isset($data->question_enabled) && is_array($data->question_enabled)) {
-                $enabled = isset($data->question_enabled[$pq->id]) ? 1 : 0;
-                if ($pq->enabled != $enabled) {
-                    $pq->enabled = $enabled;
-                    $updated = true;
-                }
+            // Page-level question mappings are always enabled.
+            if ((int)$pq->enabled !== 1) {
+                $pq->enabled = 1;
+                $updated = true;
             }
 
             // Update required state (if checkbox data is provided).
-            if (isset($data->question_required) && is_array($data->question_required)) {
-                $required = isset($data->question_required[$pq->id]) ? 1 : 0;
-                if (!isset($pq->required) || (int)$pq->required !== $required) {
-                    $pq->required = $required;
-                    $updated = true;
-                }
-            } else if (isset($_POST['question_required']) && is_array($_POST['question_required']) && array_key_exists($pq->id, $_POST['question_required'])) {
-                $required = isset($_POST['question_required'][$pq->id]) ? 1 : 0;
-                if (!isset($pq->required) || (int)$pq->required !== $required) {
-                    $pq->required = $required;
-                    $updated = true;
-                }
-            } else if (isset($_POST['question_required']) && is_array($_POST['question_required'])) {
-                $required = isset($_POST['question_required'][$pq->id]) ? 1 : 0;
-                if (!isset($pq->required) || (int)$pq->required !== $required) {
-                    $pq->required = $required;
-                    $updated = true;
-                }
+            // Unchecked checkboxes are not submitted by the browser, so a missing array means all are unchecked.
+            $required = isset($postedrequired[$pq->id]) ? 1 : 0;
+            if (!isset($pq->required) || (int)$pq->required !== $required) {
+                $pq->required = $required;
+                $updated = true;
             }
             
             // Update show_only_turn field (always check, even if enabled checkbox wasn't touched).
@@ -367,10 +374,26 @@ if ($form->is_cancelled()) {
         $pagedata->sortorder = ($maxsort !== false) ? $maxsort + 1 : 0;
         $pagedata->timecreated = time();
         $pageid = $DB->insert_record('harpiasurvey_pages', $pagedata);
+
+        // Finalize editor files with the real page id (new records don't have an itemid before insert).
+        $descriptiondata = file_postupdate_standard_editor(
+            $data,
+            'description',
+            $form->get_editor_options(),
+            $context,
+            'mod_harpiasurvey',
+            'page',
+            $pageid
+        );
+        $DB->update_record('harpiasurvey_pages', (object)[
+            'id' => $pageid,
+            'description' => $descriptiondata->description,
+            'descriptionformat' => $descriptiondata->descriptionformat
+        ]);
     }
 
-    // Handle page-model associations (only for aichat pages).
-    if ($pagedata->type === 'aichat' && $pagedata->behavior !== 'multi_model') {
+    // Handle page-model associations (only for aichat pages with live interaction behaviors).
+    if ($pagedata->type === 'aichat' && !in_array($pagedata->behavior, ['multi_model', 'review_conversation'], true)) {
         // Delete existing associations.
         $DB->delete_records('harpiasurvey_page_models', ['pageid' => $pageid]);
         
@@ -400,13 +423,90 @@ if ($form->is_cancelled()) {
                 $DB->insert_record('harpiasurvey_page_models', $association);
             }
         }
+    } else if ($pagedata->type === 'aichat' && $pagedata->behavior === 'review_conversation') {
+        // Review conversation pages do not use live model associations.
+        $DB->delete_records('harpiasurvey_page_models', ['pageid' => $pageid]);
+    }
+
+    $successmessage = get_string('pagesaved', 'mod_harpiasurvey');
+
+    // Handle review-conversation CSV upload/import.
+    if ($pagedata->type === 'aichat' && $pagedata->behavior === 'review_conversation') {
+        if (isset($data->reviewconversationcsv)) {
+            file_save_draft_area_files(
+                (int)$data->reviewconversationcsv,
+                $context->id,
+                'mod_harpiasurvey',
+                'reviewcsv',
+                $pageid,
+                [
+                    'subdirs' => 0,
+                    'maxfiles' => 1,
+                    'maxbytes' => 0,
+                    'accepted_types' => ['.csv'],
+                ]
+            );
+
+            $fs = get_file_storage();
+            $files = $fs->get_area_files($context->id, 'mod_harpiasurvey', 'reviewcsv', $pageid, 'id DESC', false);
+            if (!empty($files)) {
+                $csvfile = reset($files);
+                try {
+                    $result = \mod_harpiasurvey\local\review_conversation_importer::import_for_page($pageid, $csvfile, $USER->id);
+                    $successmessage = get_string('reviewimportsuccess', 'mod_harpiasurvey', [
+                        'rows' => $result['rows'],
+                        'threads' => $result['threads'],
+                    ]);
+                } catch (\Exception $e) {
+                    $dataset = $DB->get_record('harpiasurvey_review_datasets', ['pageid' => $pageid]);
+                    if ($dataset) {
+                        $dataset->status = 'error';
+                        $dataset->errormessage = $e->getMessage();
+                        $dataset->timemodified = time();
+                        $DB->update_record('harpiasurvey_review_datasets', $dataset);
+                    }
+                    redirect(
+                        new moodle_url('/mod/harpiasurvey/view_experiment.php', ['id' => $cm->id, 'experiment' => $experiment->id]),
+                        get_string('reviewimporterror', 'mod_harpiasurvey', $e->getMessage()),
+                        null,
+                        \core\output\notification::NOTIFY_ERROR
+                    );
+                }
+            }
+        }
+    } else {
+        // If page is no longer review-conversation, clean dataset/file area for this page.
+        if ($DB->get_manager()->table_exists('harpiasurvey_review_targets')) {
+            $DB->delete_records('harpiasurvey_review_targets', ['pageid' => $pageid]);
+        }
+        if ($DB->get_manager()->table_exists('harpiasurvey_review_datasets')) {
+            $dataset = $DB->get_record('harpiasurvey_review_datasets', ['pageid' => $pageid]);
+            if ($dataset) {
+                if ($DB->get_manager()->table_exists('harpiasurvey_review_message_threads')) {
+                    $DB->delete_records('harpiasurvey_review_message_threads', ['datasetid' => $dataset->id]);
+                }
+                if ($DB->get_manager()->table_exists('harpiasurvey_review_messages')) {
+                    $DB->delete_records('harpiasurvey_review_messages', ['datasetid' => $dataset->id]);
+                }
+                if ($DB->get_manager()->table_exists('harpiasurvey_review_threads')) {
+                    $DB->delete_records('harpiasurvey_review_threads', ['datasetid' => $dataset->id]);
+                }
+                $DB->delete_records('harpiasurvey_review_datasets', ['id' => $dataset->id]);
+            }
+        }
+        get_file_storage()->delete_area_files($context->id, 'mod_harpiasurvey', 'reviewcsv', $pageid);
     }
 
     // Purge course cache to refresh the table display.
     rebuild_course_cache($course->id, true);
 
     // Redirect back to experiment view.
-    redirect(new moodle_url('/mod/harpiasurvey/view_experiment.php', ['id' => $cm->id, 'experiment' => $experiment->id]), get_string('pagesaved', 'mod_harpiasurvey'), null, \core\output\notification::NOTIFY_SUCCESS);
+    redirect(
+        new moodle_url('/mod/harpiasurvey/view_experiment.php', ['id' => $cm->id, 'experiment' => $experiment->id]),
+        $successmessage,
+        null,
+        \core\output\notification::NOTIFY_SUCCESS
+    );
 }
 
 // Display form.

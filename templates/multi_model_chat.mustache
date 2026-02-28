@@ -31,7 +31,7 @@
         </div>
     {{/aichat.show_sidebar}}
     <div class="{{#aichat.show_sidebar}}col-md-9{{/aichat.show_sidebar}}{{^aichat.show_sidebar}}col-12{{/aichat.show_sidebar}}">
-        <div class="multi-model-chat-container mb-4 mt-4" data-cmid="{{cmid}}" data-pageid="{{pageid}}" data-behavior="{{aichat.behavior}}" {{#aichat.has_min_turns}}data-min-turns="{{aichat.min_turns}}"{{/aichat.has_min_turns}} {{#aichat.has_max_turns}}data-max-turns="{{aichat.max_turns}}"{{/aichat.has_max_turns}}>
+        <div class="multi-model-chat-container mb-4 mt-4" data-cmid="{{cmid}}" data-pageid="{{pageid}}" data-behavior="{{aichat.behavior}}" {{#aichat.has_min_turns}}data-min-turns="{{aichat.min_turns}}"{{/aichat.has_min_turns}} {{#aichat.has_max_turns}}data-max-turns="{{aichat.max_turns}}"{{/aichat.has_max_turns}} {{#aichat.has_min_qa_questions}}data-min-qa-questions="{{aichat.min_qa_questions}}"{{/aichat.has_min_qa_questions}} {{#aichat.has_max_qa_questions}}data-max-qa-questions="{{aichat.max_qa_questions}}"{{/aichat.has_max_qa_questions}}>
             {{#aichat.has_turn_evaluation_questions}}
                 <script type="application/json" id="turn-evaluation-questions-data-{{pageid}}">{{{aichat.turn_evaluation_questions_json}}}</script>
             {{/aichat.has_turn_evaluation_questions}}
@@ -75,9 +75,6 @@
                                 <button type="button" class="btn btn-sm btn-outline-secondary toggle-previous-messages-btn" data-pageid="{{pageid}}" data-model-id="{{id}}" title="{{#str}}togglepreviousmessages, mod_harpiasurvey{{/str}}">
                                     <i class="fa fa-history" aria-hidden="true"></i> {{#str}}showprevious, mod_harpiasurvey{{/str}}
                                 </button>
-                                <span class="badge badge-info" id="current-turn-badge-model-{{id}}-{{pageid}}">
-                                    <span id="current-turn-number-model-{{id}}-{{pageid}}">Turno 1</span>
-                                </span>
                             </div>
                         </div>
                     {{/aichat.is_turns_mode}}
@@ -153,7 +150,14 @@
 
                     {{! Q&A new question button per model }}
                     {{#aichat.is_qa_mode}}
-                        <div class="mt-2 d-flex justify-content-end">
+                        <div class="mt-2 d-flex justify-content-between">
+                            <button type="button" class="btn btn-sm btn-outline-secondary export-conversation-btn"
+                                    data-pageid="{{pageid}}"
+                                    data-cmid="{{cmid}}"
+                                    data-model-id="{{id}}">
+                                <i class="fa fa-download mr-1" aria-hidden="true"></i>
+                                {{#str}}exportconversation, mod_harpiasurvey{{/str}}
+                            </button>
                             <button type="button" class="btn btn-sm new-question-btn new-question-action-btn"
                                     data-pageid="{{pageid}}"
                                     data-model-id="{{id}}">
@@ -170,6 +174,7 @@
 
                     {{! Q&A evaluation questions container (per entry, per model) }}
                     {{#aichat.is_qa_mode}}
+                    {{#aichat.has_page_evaluation_questions}}
                         <div class="evaluation-section mt-4">
                             <div class="evaluation-section-header mb-3">
                                 <h5 class="mb-1">{{evaluation_title}}</h5>
@@ -180,6 +185,7 @@
                                 {{! Questions will be dynamically loaded here based on selected Q&A entry }}
                             </div>
                         </div>
+                    {{/aichat.has_page_evaluation_questions}}
                     {{/aichat.is_qa_mode}}
                     
                     {{! Questions for this model tab }}

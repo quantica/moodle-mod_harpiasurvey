@@ -34,6 +34,27 @@ $context = $cm->context;
 
 // Handle deletion.
 if ($confirm && confirm_sesskey()) {
+    // Delete review-conversation dataset and targets for this page.
+    if ($DB->get_manager()->table_exists('harpiasurvey_review_targets')) {
+        $DB->delete_records('harpiasurvey_review_targets', ['pageid' => $pageid]);
+    }
+    if ($DB->get_manager()->table_exists('harpiasurvey_review_datasets')) {
+        $dataset = $DB->get_record('harpiasurvey_review_datasets', ['pageid' => $pageid]);
+        if ($dataset) {
+            if ($DB->get_manager()->table_exists('harpiasurvey_review_message_threads')) {
+                $DB->delete_records('harpiasurvey_review_message_threads', ['datasetid' => $dataset->id]);
+            }
+            if ($DB->get_manager()->table_exists('harpiasurvey_review_messages')) {
+                $DB->delete_records('harpiasurvey_review_messages', ['datasetid' => $dataset->id]);
+            }
+            if ($DB->get_manager()->table_exists('harpiasurvey_review_threads')) {
+                $DB->delete_records('harpiasurvey_review_threads', ['datasetid' => $dataset->id]);
+            }
+            $DB->delete_records('harpiasurvey_review_datasets', ['id' => $dataset->id]);
+        }
+    }
+    get_file_storage()->delete_area_files($context->id, 'mod_harpiasurvey', 'reviewcsv', $pageid);
+
     // Delete all page-question associations first.
     $DB->delete_records('harpiasurvey_page_questions', ['pageid' => $pageid]);
     
@@ -98,4 +119,3 @@ echo $OUTPUT->confirm(
 );
 
 echo $OUTPUT->footer();
-

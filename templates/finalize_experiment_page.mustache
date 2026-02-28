@@ -1,0 +1,74 @@
+{{!
+    @template mod_harpiasurvey/finalize_experiment_page
+}}
+<div class="harpiasurvey-finalize-page"
+     data-cmid="{{cmid}}"
+     data-experimentid="{{experimentid}}"
+     data-finalized="{{#is_finalized}}1{{/is_finalized}}{{^is_finalized}}0{{/is_finalized}}">
+    <div class="alert {{#is_finalized}}alert-success{{/is_finalized}}{{^is_finalized}}alert-info{{/is_finalized}}">
+        <h4 class="mb-2">{{#str}}finalizeexperimentpage, mod_harpiasurvey{{/str}}</h4>
+        {{#is_finalized}}
+            <p class="mb-2">{{#str}}experimentfinalizedstatus, mod_harpiasurvey{{/str}}</p>
+            {{#finalized_at}}
+                <div class="small text-muted">{{#str}}finalizedatlabel, mod_harpiasurvey{{/str}}: {{finalized_at}}</div>
+            {{/finalized_at}}
+        {{/is_finalized}}
+        {{^is_finalized}}
+            <p class="mb-0">{{#str}}finalizeexperimentdescription, mod_harpiasurvey{{/str}}</p>
+        {{/is_finalized}}
+    </div>
+
+    <button type="button"
+            class="btn {{#is_finalized}}btn-outline-secondary{{/is_finalized}}{{^is_finalized}}btn-primary{{/is_finalized}}"
+            data-action="open-finalize-modal">
+        {{#is_finalized}}
+            {{#str}}viewfinalizationsummary, mod_harpiasurvey{{/str}}
+        {{/is_finalized}}
+        {{^is_finalized}}
+            {{#str}}reviewandfinalizeexperiment, mod_harpiasurvey{{/str}}
+        {{/is_finalized}}
+    </button>
+
+    <div class="modal fade harpiasurvey-finalize-modal" tabindex="-1" role="dialog" aria-hidden="true">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">{{#str}}finalizeexperimentmodaltitle, mod_harpiasurvey{{/str}}</h5>
+                    <button type="button" class="close" data-dismiss="modal" data-bs-dismiss="modal" aria-label="{{#str}}close, core{{/str}}">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="finalize-summary-loading text-center py-3">
+                        <i class="fa fa-spinner fa-spin" aria-hidden="true"></i>
+                    </div>
+                    <div class="finalize-summary-content d-none">
+                        <div class="row mb-3">
+                            <div class="col-md-4"><strong>{{#str}}questionsansweredlabel, mod_harpiasurvey{{/str}}</strong>: <span data-field="answered">0</span></div>
+                            <div class="col-md-4"><strong>{{#str}}questionsunansweredlabel, mod_harpiasurvey{{/str}}</strong>: <span data-field="unanswered">0</span></div>
+                            <div class="col-md-4"><strong>{{#str}}requiredunansweredlabel, mod_harpiasurvey{{/str}}</strong>: <span data-field="requiredunanswered">0</span></div>
+                        </div>
+                        <div class="alert alert-warning d-none" data-role="required-warning">
+                            {{#str}}cannotfinalizerequiredunanswered, mod_harpiasurvey{{/str}}
+                        </div>
+                        <div class="border rounded p-2 mb-3" style="max-height: 220px; overflow-y: auto;">
+                            <div data-role="page-details"></div>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="1" id="harpiasurvey-finalize-certify-{{experimentid}}" data-role="certify-checkbox">
+                            <label class="form-check-label" for="harpiasurvey-finalize-certify-{{experimentid}}">
+                                {{#str}}finalizecertifycheckbox, mod_harpiasurvey{{/str}}
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-role="finalize-cancel-btn" data-dismiss="modal" data-bs-dismiss="modal">{{#str}}cancel, core{{/str}}</button>
+                    <button type="button" class="btn btn-primary" data-role="confirm-finalize-btn" disabled>
+                        {{#str}}confirm, core{{/str}}
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

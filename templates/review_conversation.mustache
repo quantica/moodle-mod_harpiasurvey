@@ -1,0 +1,63 @@
+{{!
+    @template mod_harpiasurvey/review_conversation
+}}
+<div class="review-conversation-container mb-4 mt-4"
+     data-cmid="{{cmid}}"
+     data-pageid="{{pageid}}"
+     data-behavior="{{aichat.behavior}}"
+     data-review-default-thread-id="{{aichat.review_default_thread_id}}">
+    <div class="row">
+        <div class="col-md-3" style="min-width: 260px; max-width: 360px;">
+            <div class="card">
+                <div class="card-header py-2">
+                    <strong>{{#str}}reviewthreads, mod_harpiasurvey{{/str}}</strong>
+                </div>
+                <div class="card-body p-2" style="max-height: 420px; overflow-y: auto;">
+                    {{#aichat.has_review_threads}}
+                        <div class="list-group review-thread-list" id="review-thread-list-{{pageid}}">
+                            {{#aichat.review_threads}}
+                                <button type="button"
+                                        class="list-group-item list-group-item-action review-thread-item"
+                                        data-thread-id="{{id}}"
+                                        data-pageid="{{pageid}}">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <span>{{label}}</span>
+                                        <span class="badge badge-light">{{message_count}}</span>
+                                    </div>
+                                </button>
+                            {{/aichat.review_threads}}
+                        </div>
+                    {{/aichat.has_review_threads}}
+                    {{^aichat.has_review_threads}}
+                        <div class="text-muted small">{{#str}}reviewnodatayet, mod_harpiasurvey{{/str}}</div>
+                    {{/aichat.has_review_threads}}
+                </div>
+            </div>
+        </div>
+        <div class="col-md-9">
+            <div class="card">
+                <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                    <span>{{#str}}reviewconversationtitle, mod_harpiasurvey{{/str}}</span>
+                    {{#aichat.has_review_dataset}}
+                        <small class="text-muted">{{aichat.review_dataset_filename}}</small>
+                    {{/aichat.has_review_dataset}}
+                </div>
+                <div class="card-body">
+                    {{#aichat.has_review_dataset}}
+                        <div class="review-thread-messages border rounded p-3 bg-light"
+                             id="review-thread-messages-{{pageid}}"
+                             style="min-height: 240px; max-height: 620px; overflow-y: auto;">
+                            <div class="text-muted text-center small py-3">
+                                {{#str}}reviewselectthread, mod_harpiasurvey{{/str}}
+                            </div>
+                        </div>
+                    {{/aichat.has_review_dataset}}
+                    {{^aichat.has_review_dataset}}
+                        <div class="alert alert-info mb-0">{{#str}}reviewnodatayet, mod_harpiasurvey{{/str}}</div>
+                    {{/aichat.has_review_dataset}}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+

@@ -115,6 +115,8 @@
         <FIELD NAME="behavior" TYPE="char" LENGTH="50" NOTNULL="false" DEFAULT="continuous" SEQUENCE="false" COMMENT="Behavior mode: continuous (default), turns (turn-based navigation), multi_model (future)."/>
         <FIELD NAME="min_turns" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Minimum number of turns required (NULL = no minimum, only for turns behavior)."/>
         <FIELD NAME="max_turns" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Maximum number of turns allowed (NULL = no maximum, only for turns behavior)."/>
+        <FIELD NAME="min_qa_questions" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Minimum number of Q&A pairs required (NULL = no minimum, only for Q&A behavior)."/>
+        <FIELD NAME="max_qa_questions" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Maximum number of Q&A pairs allowed (NULL = no maximum, only for Q&A behavior)."/>
         <FIELD NAME="available" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false" COMMENT="Whether the page is available (0 = disabled, 1 = enabled)."/>
         <FIELD NAME="sortorder" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Sort order for displaying pages."/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Timestamp of when the page was created."/>
@@ -330,6 +332,123 @@
       <INDEXES>
         <INDEX NAME="idx_user_page_parent" UNIQUE="false" FIELDS="userid, pageid, parent_turn_id" COMMENT="Index for finding all branches from a parent turn."/>
         <INDEX NAME="unique_user_turn_branch" UNIQUE="true" FIELDS="userid, pageid, child_turn_id" COMMENT="Ensure each turn can only have one parent branch relationship."/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="harpiasurvey_review_datasets" COMMENT="Stores imported review-conversation datasets for a page.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="pageid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="uploadedby" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="filename" TYPE="char" LENGTH="255" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="contenthash" TYPE="char" LENGTH="64" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="status" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="ready" SEQUENCE="false"/>
+        <FIELD NAME="errormessage" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_page" TYPE="foreign" FIELDS="pageid" REFTABLE="harpiasurvey_pages" REFFIELDS="id"/>
+        <KEY NAME="fk_user" TYPE="foreign" FIELDS="uploadedby" REFTABLE="user" REFFIELDS="id"/>
+        <KEY NAME="uniq_page" TYPE="unique" FIELDS="pageid"/>
+      </KEYS>
+      <INDEXES>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="harpiasurvey_review_messages" COMMENT="Stores imported messages for review-conversation datasets.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="datasetid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="source_message_id" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="source_parent_id" TYPE="char" LENGTH="255" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="source_turn_id" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="source_model_id" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="role" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="other" SEQUENCE="false"/>
+        <FIELD NAME="content" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="sourcets" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="sortindex" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_dataset" TYPE="foreign" FIELDS="datasetid" REFTABLE="harpiasurvey_review_datasets" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="uniq_dataset_source_msg" UNIQUE="true" FIELDS="datasetid, source_message_id"/>
+        <INDEX NAME="idx_dataset_turn" UNIQUE="false" FIELDS="datasetid, source_turn_id"/>
+        <INDEX NAME="idx_dataset_parent" UNIQUE="false" FIELDS="datasetid, source_parent_id"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="harpiasurvey_review_threads" COMMENT="Stores imported root conversation threads for review datasets.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="datasetid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="thread_key" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="root_source_message_id" TYPE="char" LENGTH="255" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="thread_order" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="label" TYPE="char" LENGTH="255" NOTNULL="false" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_dataset" TYPE="foreign" FIELDS="datasetid" REFTABLE="harpiasurvey_review_datasets" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="uniq_dataset_threadkey" UNIQUE="true" FIELDS="datasetid, thread_key"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="harpiasurvey_review_message_threads" COMMENT="Maps imported messages to imported threads.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="datasetid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="reviewmessageid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="threadid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_dataset" TYPE="foreign" FIELDS="datasetid" REFTABLE="harpiasurvey_review_datasets" REFFIELDS="id"/>
+        <KEY NAME="fk_reviewmessage" TYPE="foreign" FIELDS="reviewmessageid" REFTABLE="harpiasurvey_review_messages" REFFIELDS="id"/>
+        <KEY NAME="fk_thread" TYPE="foreign" FIELDS="threadid" REFTABLE="harpiasurvey_review_threads" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="uniq_msg_thread" UNIQUE="true" FIELDS="reviewmessageid, threadid"/>
+        <INDEX NAME="idx_thread_msg" UNIQUE="false" FIELDS="threadid, reviewmessageid"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="harpiasurvey_review_targets" COMMENT="Per-user per-thread evaluation targets for review-conversation pages.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="pageid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="threadid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_page" TYPE="foreign" FIELDS="pageid" REFTABLE="harpiasurvey_pages" REFFIELDS="id"/>
+        <KEY NAME="fk_user" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+        <KEY NAME="fk_thread" TYPE="foreign" FIELDS="threadid" REFTABLE="harpiasurvey_review_threads" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="uniq_page_user_thread" UNIQUE="true" FIELDS="pageid, userid, threadid"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="harpiasurvey_experiment_finalizations" COMMENT="Stores per-user finalization state for experiments.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="experimentid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="certified" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="1" SEQUENCE="false"/>
+        <FIELD NAME="summaryjson" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="fk_experiment" TYPE="foreign" FIELDS="experimentid" REFTABLE="harpiasurvey_experiments" REFFIELDS="id"/>
+        <KEY NAME="fk_user" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="uniq_experiment_user" UNIQUE="true" FIELDS="experimentid, userid"/>
       </INDEXES>
     </TABLE>
   </TABLES>

@@ -328,6 +328,19 @@ const saveAllResponses = (cmid, pageid, questionsToSave, button, statusDiv) => {
             if (viewingConversation && !isNaN(viewingConversation)) {
                 turnId = parseInt(viewingConversation, 10);
             }
+        } else if (behavior === 'review_conversation') {
+            const reviewTargetId = parseInt(container.attr('data-review-target-id'), 10);
+            if (reviewTargetId && !isNaN(reviewTargetId)) {
+                turnId = reviewTargetId;
+            }
+        }
+    } else {
+        const reviewContainer = $(`.review-conversation-container[data-pageid="${pageid}"]`);
+        if (reviewContainer.length) {
+            const reviewTargetId = parseInt(reviewContainer.attr('data-review-target-id'), 10);
+            if (reviewTargetId && !isNaN(reviewTargetId)) {
+                turnId = reviewTargetId;
+            }
         }
     }
 

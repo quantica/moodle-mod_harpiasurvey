@@ -1,14 +1,7 @@
 <div class="message my-3" data-messageid="{{id}}" {{#turn_id}}data-turn-id="{{turn_id}}"{{/turn_id}} {{#parentid}}data-parentid="{{parentid}}"{{/parentid}} data-role="assistant">
     <div class="d-flex">
         <div class="border rounded p-3 bg-light position-relative" style="max-width: 80%; border-left: 4px solid #007bff !important;">
-            {{#turn_id}}
-                <div class="position-absolute" style="top: -8px; left: 10px;">
-                    <span class="badge badge-info badge-sm" style="font-size: 0.7rem; padding: 0.2rem 0.4rem;">
-                        {{#turn_label}}{{turn_label}}{{/turn_label}}{{^turn_label}}T{{turn_id}}{{/turn_label}}
-                    </span>
-                </div>
-            {{/turn_id}}
-            <div class="content" style="margin-top: {{#turn_id}}0.5rem{{/turn_id}}{{^turn_id}}0{{/turn_id}};">
+            <div class="content" style="margin-top: 0;">
                 {{{content}}}
             </div>
         </div>

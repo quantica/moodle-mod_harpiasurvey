@@ -40,7 +40,7 @@
     <div class="d-flex align-items-center tree-node-content p-1 rounded {{#is_current}}bg-primary text-white shadow-sm{{/is_current}}{{^is_current}}border hover-shadow{{/is_current}}" 
          style="cursor: pointer; transition: all 0.2s; font-size: 0.875rem;"
          data-action="navigate" data-turn-id="{{turn_id}}" {{#conversation_id}}data-conversation-id="{{conversation_id}}"{{/conversation_id}}
-         onmouseover="this.style.backgroundColor='#0b3d91'; this.style.borderColor='#0b3d91'; this.style.color='#fff';"
+         onmouseover="{{#is_current}}this.style.backgroundColor='#0b3d91'; this.style.borderColor='#0b3d91'; this.style.color='#fff';{{/is_current}}{{^is_current}}this.style.color='#007bff';{{/is_current}}"
          onmouseout="{{#is_current}}this.style.backgroundColor='#007bff'; this.style.borderColor='#007bff'; this.style.color='#fff';{{/is_current}}{{^is_current}}this.style.backgroundColor=''; this.style.borderColor=''; this.style.color='';{{/is_current}}">
         <i class="fa fa-{{#is_root}}{{#is_direct_branch}}code-branch{{/is_direct_branch}}{{^is_direct_branch}}comments{{/is_direct_branch}}{{/is_root}}{{^is_root}}code-branch{{/is_root}} mr-2 {{#is_current}}text-white{{/is_current}}{{^is_current}}text-primary{{/is_current}}" style="color: inherit;"></i>
         <span class="flex-grow-1 font-weight-{{#is_current}}bold{{/is_current}}{{^is_current}}normal{{/is_current}}" style="line-height: 1.2;">
@@ -67,6 +67,7 @@
         {{/has_children}}
         {{^has_children}}
         {{#can_create_branch}}
+        {{^suppress_inline_branch_button}}
             <button type="button" class="btn btn-xs btn-{{#is_current}}light{{/is_current}}{{^is_current}}outline-success{{/is_current}} ml-2 create-branch-from-tree-btn" 
                     data-pageid="{{pageid}}" 
                     data-cmid="{{cmid}}" 
@@ -75,9 +76,11 @@
                     data-trigger="hover"
                     data-placement="top"
                     data-content="{{#str}}createbranch, mod_harpiasurvey{{/str}}"
-                    aria-label="{{#str}}createbranch, mod_harpiasurvey{{/str}}" style="padding: 0.1rem 0.25rem;">
-                <i class="fa fa-code-branch fa-xs" aria-hidden="true"></i>
+                    aria-label="{{#str}}createbranch, mod_harpiasurvey{{/str}}" style="padding: 0.1rem 0.4rem;">
+                <i class="fa fa-code-branch fa-xs mr-1" aria-hidden="true"></i>
+                <span class="branch-label d-none d-sm-inline">{{#str}}createbranch, mod_harpiasurvey{{/str}}</span>
             </button>
+        {{/suppress_inline_branch_button}}
         {{/can_create_branch}}
         {{/has_children}}
     </div>

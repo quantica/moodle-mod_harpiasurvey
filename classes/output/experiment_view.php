@@ -102,6 +102,16 @@ class experiment_view implements renderable, templatable {
     public $modelshtml;
 
     /**
+     * @var bool Whether the virtual finalize page is currently selected
+     */
+    public $viewingfinalize;
+
+    /**
+     * @var bool Whether to show virtual finalize page tab
+     */
+    public $showfinalizepage;
+
+    /**
      * Class constructor.
      *
      * @param object $experiment
@@ -119,7 +129,7 @@ class experiment_view implements renderable, templatable {
      * @param string $tab
      * @param string $modelshtml
      */
-    public function __construct($experiment, $pages, $context, $cmid, $experimentid, $viewingpage = null, $editing = false, $formhtml = '', $pageviewhtml = '', $canmanage = true, $cannavigate = false, $navigation_mode = 'free_navigation', $tab = 'pages', $modelshtml = '') {
+    public function __construct($experiment, $pages, $context, $cmid, $experimentid, $viewingpage = null, $editing = false, $formhtml = '', $pageviewhtml = '', $canmanage = true, $cannavigate = false, $navigation_mode = 'free_navigation', $tab = 'pages', $modelshtml = '', $viewingfinalize = false, $showfinalizepage = true) {
         $this->experiment = $experiment;
         $this->pages = $pages;
         $this->context = $context;
@@ -134,6 +144,8 @@ class experiment_view implements renderable, templatable {
         $this->navigation_mode = $navigation_mode;
         $this->tab = $tab;
         $this->modelshtml = $modelshtml;
+        $this->viewingfinalize = $viewingfinalize;
+        $this->showfinalizepage = $showfinalizepage;
     }
 
     /**
@@ -148,7 +160,7 @@ class experiment_view implements renderable, templatable {
         // Prepare pages list.
         $pageslist = [];
         $pagenum = 1;
-        $currentpageid = $this->viewingpage ? $this->viewingpage->id : null;
+        $currentpageid = ($this->viewingpage && !$this->viewingfinalize) ? $this->viewingpage->id : null;
         $currentpageindex = -1;
         
         // Find current page index for only_forward mode.
@@ -159,6 +171,9 @@ class experiment_view implements renderable, templatable {
                     break;
                 }
             }
+        }
+        if ($this->viewingfinalize && $this->navigation_mode === 'only_forward') {
+            $currentpageindex = count($this->pages);
         }
         
         foreach ($this->pages as $index => $page) {
@@ -189,6 +204,29 @@ class experiment_view implements renderable, templatable {
                 'deleteurl' => $deleteurl->out(false),
                 'is_active' => ($currentpageid && $page->id == $currentpageid),
                 'is_disabled' => $is_disabled,
+            ];
+        }
+
+        if ($this->showfinalizepage && $this->tab === 'pages') {
+            $finalizeurl = new \moodle_url('/mod/harpiasurvey/view_experiment.php', [
+                'id' => $this->cmid,
+                'experiment' => $this->experimentid,
+                'finalize' => 1
+            ]);
+            $pageslist[] = [
+                'id' => 0,
+                'number' => $pagenum++,
+                'title' => get_string('finalizeexperimentpage', 'mod_harpiasurvey'),
+                'url' => $finalizeurl->out(false),
+                'deleteurl' => '',
+                'is_active' => $this->viewingfinalize,
+                'is_disabled' => (
+                    !$this->cannavigate &&
+                    $this->navigation_mode === 'only_forward' &&
+                    !empty($this->pages) &&
+                    $currentpageindex >= 0 &&
+                    $currentpageindex < (count($this->pages) - 1)
+                ),
             ];
         }
 
@@ -233,7 +271,7 @@ class experiment_view implements renderable, templatable {
             'addpageurl' => $addpageurl->out(false),
             'addpagelabel' => get_string('addpage', 'mod_harpiasurvey'),
             'selectpagetoadd' => get_string('selectpagetoadd', 'mod_harpiasurvey'),
-            'viewingpage' => $this->viewingpage !== null,
+            'viewingpage' => ($this->viewingpage !== null || $this->viewingfinalize),
             'editing' => $this->editing,
             'formhtml' => $this->formhtml,
             'pageviewhtml' => $this->pageviewhtml,

@@ -99,7 +99,7 @@ export const countNodes = (node) => {
 
 // Helper: calculate hierarchical turn number
 export const calculateTurnNumber = (node, turnIndex, parentNumber) => {
-    if (node.is_root || node.is_direct_branch) {
+    if (node.is_root) {
         return String(turnIndex + 1);
     }
     const branchIndex = turnIndex + 1;
