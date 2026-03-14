@@ -655,6 +655,7 @@ const renderQaEvaluationQuestions = (pageid, modelid, questionId) => {
             action: 'get_turn_questions',
             pageid: pageid,
             turn_id: questionId,
+            modelid: modelid,
             cmid: cmid,
             sesskey: Config.sesskey
         });
@@ -708,6 +709,7 @@ const loadQaEvaluationResponses = (pageid, modelid, questionId) => {
         cmid: cmid,
         pageid: pageid,
         turn_id: questionId,
+        modelid: modelid,
         sesskey: Config.sesskey
     });
 
@@ -844,6 +846,7 @@ const saveQaEvaluationResponses = (cmid, pageid, modelid, questionId, responses,
                 questionid: qid,
                 response: response,
                 turn_id: questionId,
+                modelid: modelid,
                 sesskey: Config.sesskey
             });
 

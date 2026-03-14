@@ -79,6 +79,7 @@ $allresponses = [];
 if (!empty($pageids)) {
     list($insql, $inparams) = $DB->get_in_or_equal($pageids, SQL_PARAMS_NAMED);
     $sql = "SELECT r.id, r.userid, r.questionid, r.pageid, r.response, r.timecreated, r.timemodified, r.turn_id,
+                   r.modelid, r.iteration_type, r.iteration_id,
                    q.name AS questionname, q.type AS questiontype, q.settings AS questionsettings,
                    p.type AS pagetype, p.behavior AS pagebehavior
               FROM {harpiasurvey_responses} r
@@ -86,7 +87,7 @@ if (!empty($pageids)) {
               JOIN {harpiasurvey_page_questions} pq ON pq.pageid = r.pageid AND pq.questionid = r.questionid
               JOIN {harpiasurvey_pages} p ON p.id = r.pageid
              WHERE r.pageid $insql
-          ORDER BY r.userid ASC, r.pageid ASC, q.name ASC, r.turn_id ASC, r.timemodified DESC, r.timecreated DESC";
+          ORDER BY r.userid ASC, r.pageid ASC, q.name ASC, r.turn_id ASC, r.modelid ASC, r.timemodified DESC, r.timecreated DESC";
 
     $allresponses = $DB->get_records_sql($sql, $inparams);
 }
@@ -96,7 +97,8 @@ if (!empty($pageids)) {
 $responses = [];
 $responsekeys = []; // Track (userid, pageid, questionid, turn_id) to find latest
 foreach ($allresponses as $response) {
-    $key = $response->userid . '_' . $response->pageid . '_' . $response->questionid . '_' . ($response->turn_id ?? 'null');
+    $key = $response->userid . '_' . $response->pageid . '_' . $response->questionid . '_' .
+        ($response->turn_id ?? 'null') . '_' . ($response->modelid ?? 'null');
     if (!isset($responsekeys[$key])) {
         // First time seeing this combination - this is the latest (since we ordered by timemodified DESC)
         $responsekeys[$key] = true;
@@ -112,7 +114,8 @@ foreach ($allresponses as $response) {
 // Count total edits per (user, page, question, turn)
 $editcounts = [];
 foreach ($allresponses as $response) {
-    $key = $response->userid . '_' . $response->pageid . '_' . $response->questionid . '_' . ($response->turn_id ?? 'null');
+    $key = $response->userid . '_' . $response->pageid . '_' . $response->questionid . '_' .
+        ($response->turn_id ?? 'null') . '_' . ($response->modelid ?? 'null');
     if (!isset($editcounts[$key])) {
         $editcounts[$key] = 0;
     }
@@ -121,7 +124,8 @@ foreach ($allresponses as $response) {
 
 // Add edit count to responses
 foreach ($responses as $response) {
-    $key = $response->userid . '_' . $response->pageid . '_' . $response->questionid . '_' . ($response->turn_id ?? 'null');
+    $key = $response->userid . '_' . $response->pageid . '_' . $response->questionid . '_' .
+        ($response->turn_id ?? 'null') . '_' . ($response->modelid ?? 'null');
     $response->edit_count = $editcounts[$key] ?? 1;
     $response->was_edited = ($response->edit_count > 1);
 }
@@ -133,7 +137,7 @@ $conversations = [];
 if (!empty($pageids)) {
     list($convinsql, $convparams) = $DB->get_in_or_equal($pageids, SQL_PARAMS_NAMED);
     $convsql = "SELECT c.id, c.userid, c.questionid, c.pageid, c.modelid, c.role, c.content, 
-                       c.timecreated, c.parentid, c.turn_id,
+                       c.timecreated, c.parentid, c.turn_id, c.iteration_type, c.iteration_id,
                        q.name AS questionname, q.type AS questiontype,
                        p.type AS pagetype, p.behavior AS pagebehavior,
                        m.name AS modelname
@@ -247,6 +251,13 @@ if (!empty($userids)) {
 
 // Get all model records for displaying model names
 $modelids = [];
+if (!empty($responses)) {
+    foreach ($responses as $response) {
+        if (!empty($response->modelid)) {
+            $modelids[] = (int)$response->modelid;
+        }
+    }
+}
 if (!empty($conversations)) {
     foreach ($conversations as $conv) {
         if (!empty($conv['models'])) {
@@ -270,23 +281,32 @@ foreach ($allmessages as $msg) {
     if ($msg->pagetype !== 'aichat') {
         continue;
     }
-    $evalid = null;
-    if ($msg->pagebehavior === 'turns') {
-        $evalid = $msg->turn_id;
-    } else {
-        $evalid = $findroot($msg->id);
+    $evalid = !empty($msg->iteration_id) ? (int)$msg->iteration_id : null;
+    $evaltype = $msg->iteration_type ?? null;
+    if ($evalid === null) {
+        if ($msg->pagebehavior === 'turns') {
+            $evalid = $msg->turn_id;
+            $evaltype = 'turn';
+        } else if ($msg->pagebehavior === 'qa') {
+            $evalid = !empty($msg->turn_id) ? (int)$msg->turn_id : $findroot($msg->id);
+            $evaltype = 'qa';
+        } else {
+            $evalid = $findroot($msg->id);
+            $evaltype = 'conversation';
+        }
     }
     if (!$evalid) {
         continue;
     }
-    $key = $msg->userid . '_' . $msg->pageid . '_' . $evalid;
+    $key = $msg->userid . '_' . $msg->pageid . '_' . ($evaltype ?? 'conversation') . '_' . $evalid . '_' . ($msg->modelid ?? 'null');
     if (!isset($evaluationmeta[$key])) {
         $evaluationmeta[$key] = [
             'userid' => $msg->userid,
             'pageid' => $msg->pageid,
             'evaluation_id' => $evalid,
+            'iteration_type' => $evaltype,
             'pagebehavior' => $msg->pagebehavior,
-            'conversationtype' => $msg->pagebehavior === 'qa' ? 'qa' : ($msg->pagebehavior === 'turns' ? 'turns' : 'continuous'),
+            'conversationtype' => $evaltype === 'qa' ? 'qa' : ($evaltype === 'turn' ? 'turns' : 'continuous'),
             'modelids' => [],
             'messagecount' => 0,
             'preview' => '',
@@ -334,9 +354,9 @@ foreach ($evaluationmeta as $key => $meta) {
         }
     }
     $conversationtypelabel = '';
-    if ($meta['conversationtype'] === 'turns') {
+    if (($meta['iteration_type'] ?? '') === 'turn') {
         $conversationtypelabel = get_string('turns', 'mod_harpiasurvey');
-    } else if ($meta['conversationtype'] === 'qa') {
+    } else if (($meta['iteration_type'] ?? '') === 'qa') {
         $conversationtypelabel = get_string('pagebehaviorqa', 'mod_harpiasurvey');
     } else {
         $conversationtypelabel = get_string('continuous', 'mod_harpiasurvey');
@@ -346,9 +366,9 @@ foreach ($evaluationmeta as $key => $meta) {
     }
     $evaluatesconversationlabel = '';
     if (!empty($meta['evaluation_id'])) {
-        if ($meta['conversationtype'] === 'turns') {
+        if (($meta['iteration_type'] ?? '') === 'turn') {
             $evaluatesconversationlabel = get_string('turn', 'mod_harpiasurvey') . ' #' . $meta['evaluation_id'];
-        } else if ($meta['conversationtype'] === 'qa') {
+        } else if (($meta['iteration_type'] ?? '') === 'qa') {
             $evaluatesconversationlabel = get_string('question', 'mod_harpiasurvey') . ' #' . $meta['evaluation_id'];
         } else {
             $evaluatesconversationlabel = get_string('conversation', 'mod_harpiasurvey') . ' #' . $meta['evaluation_id'];
@@ -606,11 +626,11 @@ foreach ($responses as $response) {
     $is_aichat_page = ($response->pagetype === 'aichat');
     $evaluatesconversation = '';
     if ($is_aichat_page) {
-        $evaluationid = $response->turn_id ?? null;
+        $evaluationid = $response->iteration_id ?? ($response->turn_id ?? null);
         if (!empty($evaluationid)) {
-            if (($response->pagebehavior ?? '') === 'turns') {
+            if (($response->iteration_type ?? '') === 'turn' || ($response->pagebehavior ?? '') === 'turns') {
                 $evaluatesconversation = get_string('turn', 'mod_harpiasurvey') . ' #' . $evaluationid;
-            } else if (($response->pagebehavior ?? '') === 'qa') {
+            } else if (($response->iteration_type ?? '') === 'qa' || ($response->pagebehavior ?? '') === 'qa') {
                 $evaluatesconversation = get_string('question', 'mod_harpiasurvey') . ' #' . $evaluationid;
             } else {
                 $evaluatesconversation = get_string('conversation', 'mod_harpiasurvey') . ' #' . $evaluationid;
@@ -635,9 +655,12 @@ foreach ($responses as $response) {
         'pageid' => $response->pageid,
         'pagetype' => $response->pagetype,
         'pagebehavior' => $response->pagebehavior ?? null,
+        'modelid' => $response->modelid ?? null,
+        'modelname' => !empty($response->modelid) && isset($models[$response->modelid]) ? $models[$response->modelid]->name : '',
+        'iteration_type' => $response->iteration_type ?? null,
         'evaluatesconversation' => $evaluatesconversation,
         'turn_id' => $response->turn_id ?? null, // Include turn_id for turn-based evaluations.
-        'evaluation_id' => $response->turn_id ?? null,
+        'evaluation_id' => $response->iteration_id ?? ($response->turn_id ?? null),
         'answeritems' => $answeritems,
         'answeritemsjson' => htmlspecialchars($answeritemsjson, ENT_QUOTES, 'UTF-8'), // For JavaScript reconstruction.
         'answer' => htmlspecialchars($fulltext, ENT_QUOTES, 'UTF-8'), // Escape for data attribute.
@@ -658,7 +681,8 @@ $entries = [];
 $grouped = [];
 foreach ($responseslist as $item) {
     if ($item['pagetype'] === 'aichat') {
-        $evalkey = $item['userid'] . '_' . $item['pageid'] . '_' . ($item['evaluation_id'] ?? 'null');
+        $evalkey = $item['userid'] . '_' . $item['pageid'] . '_' . ($item['iteration_type'] ?? 'conversation') . '_' .
+            ($item['evaluation_id'] ?? 'null') . '_' . ($item['modelid'] ?? 'null');
         if (!isset($grouped[$evalkey])) {
             $grouped[$evalkey] = [];
         }
@@ -847,7 +871,7 @@ if ($download === 'csv') {
                 $item['question'],
                 $item['questiontype'],
                 '', // No conversation type for regular responses
-                '', // No model for regular responses
+                $item['modelname'] ?? '',
                 $item['evaluatesconversation'] ?? '', // Evaluates conversation name
                 $item['turn_id'] ?? '', // Turn ID if applicable
                 $fulltext,

@@ -399,29 +399,26 @@ if ($form->is_cancelled()) {
         
         // Create new associations if models were selected.
         // Note: pagemodels can be an array or a single value from autocomplete
-        $selectedmodelids = [];
+        $selectedmodelid = null;
         if (isset($data->pagemodels)) {
             if (is_array($data->pagemodels)) {
-                $selectedmodelids = $data->pagemodels;
+                $selectedmodelids = array_values(array_filter($data->pagemodels, function($id) {
+                    return !empty($id) && $id > 0;
+                }));
+                if (!empty($selectedmodelids)) {
+                    $selectedmodelid = (int)reset($selectedmodelids);
+                }
             } else {
-                // Single value
-                $selectedmodelids = [$data->pagemodels];
+                $selectedmodelid = !empty($data->pagemodels) && $data->pagemodels > 0 ? (int)$data->pagemodels : null;
             }
         }
-        
-        // Filter out empty values
-        $selectedmodelids = array_filter($selectedmodelids, function($id) {
-            return !empty($id) && $id > 0;
-        });
-        
-        if (!empty($selectedmodelids)) {
-            foreach ($selectedmodelids as $modelid) {
-                $association = new stdClass();
-                $association->pageid = $pageid;
-                $association->modelid = (int)$modelid;
-                $association->timecreated = time();
-                $DB->insert_record('harpiasurvey_page_models', $association);
-            }
+
+        if ($selectedmodelid !== null) {
+            $association = new stdClass();
+            $association->pageid = $pageid;
+            $association->modelid = $selectedmodelid;
+            $association->timecreated = time();
+            $DB->insert_record('harpiasurvey_page_models', $association);
         }
     } else if ($pagedata->type === 'aichat' && $pagedata->behavior === 'review_conversation') {
         // Review conversation pages do not use live model associations.

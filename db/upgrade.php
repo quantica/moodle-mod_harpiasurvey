@@ -742,5 +742,321 @@ function xmldb_harpiasurvey_upgrade($oldversion) {
         upgrade_mod_savepoint(true, 202501280037, 'harpiasurvey');
     }
 
+    if ($oldversion < 202603140001) {
+        $table = new xmldb_table('harpiasurvey_conversations');
+        $field = new xmldb_field('iteration_type', XMLDB_TYPE_CHAR, '30', null, null, null, null, 'turn_id');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $field = new xmldb_field('iteration_id', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'iteration_type');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $index = new xmldb_index('idx_conversation_iteration', XMLDB_INDEX_NOTUNIQUE, ['pageid', 'userid', 'iteration_type', 'iteration_id', 'modelid']);
+        if (!$dbman->index_exists($table, $index)) {
+            $dbman->add_index($table, $index);
+        }
+
+        $table = new xmldb_table('harpiasurvey_turn_branches');
+        $field = new xmldb_field('modelid', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'userid');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $key = new xmldb_key('fk_model', XMLDB_KEY_FOREIGN, ['modelid'], 'harpiasurvey_models', ['id']);
+        try {
+            $dbman->add_key($table, $key);
+        } catch (Exception $e) {
+            // Ignore if the key already exists.
+        }
+        $index = new xmldb_index('idx_branch_model', XMLDB_INDEX_NOTUNIQUE, ['pageid', 'userid', 'modelid', 'parent_turn_id', 'child_turn_id']);
+        if (!$dbman->index_exists($table, $index)) {
+            $dbman->add_index($table, $index);
+        }
+
+        $table = new xmldb_table('harpiasurvey_responses');
+        $field = new xmldb_field('modelid', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'userid');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $field = new xmldb_field('iteration_type', XMLDB_TYPE_CHAR, '30', null, null, null, null, 'turn_id');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $field = new xmldb_field('iteration_id', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'iteration_type');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $key = new xmldb_key('fk_model', XMLDB_KEY_FOREIGN, ['modelid'], 'harpiasurvey_models', ['id']);
+        try {
+            $dbman->add_key($table, $key);
+        } catch (Exception $e) {
+            // Ignore if the key already exists.
+        }
+        $index = new xmldb_index('idx_response_iteration', XMLDB_INDEX_NOTUNIQUE, ['pageid', 'userid', 'iteration_type', 'iteration_id', 'modelid']);
+        if (!$dbman->index_exists($table, $index)) {
+            $dbman->add_index($table, $index);
+        }
+        $oldunique = new xmldb_index('unique_user_page_question', XMLDB_INDEX_UNIQUE, ['userid', 'pageid', 'questionid', 'turn_id']);
+        if ($dbman->index_exists($table, $oldunique)) {
+            $dbman->drop_index($table, $oldunique);
+        }
+        $newunique = new xmldb_index('unique_user_page_question', XMLDB_INDEX_UNIQUE, ['userid', 'pageid', 'questionid', 'turn_id', 'modelid']);
+        if (!$dbman->index_exists($table, $newunique)) {
+            $dbman->add_index($table, $newunique);
+        }
+
+        $table = new xmldb_table('harpiasurvey_response_history');
+        $field = new xmldb_field('modelid', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'userid');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $field = new xmldb_field('iteration_type', XMLDB_TYPE_CHAR, '30', null, null, null, null, 'turn_id');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $field = new xmldb_field('iteration_id', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'iteration_type');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $key = new xmldb_key('fk_model', XMLDB_KEY_FOREIGN, ['modelid'], 'harpiasurvey_models', ['id']);
+        try {
+            $dbman->add_key($table, $key);
+        } catch (Exception $e) {
+            // Ignore if the key already exists.
+        }
+        $index = new xmldb_index('idx_history_iteration', XMLDB_INDEX_NOTUNIQUE, ['pageid', 'userid', 'iteration_type', 'iteration_id', 'modelid']);
+        if (!$dbman->index_exists($table, $index)) {
+            $dbman->add_index($table, $index);
+        }
+
+        $pagemeta = $DB->get_records_sql(
+            "SELECT id, type, behavior
+               FROM {harpiasurvey_pages}"
+        );
+        $pagesbyid = [];
+        foreach ($pagemeta as $meta) {
+            $pagesbyid[(int)$meta->id] = $meta;
+        }
+
+        $conversationrows = $DB->get_records_sql(
+            "SELECT id, pageid, userid, modelid, parentid, turn_id
+               FROM {harpiasurvey_conversations}
+           ORDER BY id ASC"
+        );
+        $conversationmap = [];
+        foreach ($conversationrows as $row) {
+            $conversationmap[(int)$row->id] = $row;
+        }
+        $rootcache = [];
+        $findconversationroot = function(int $messageid) use (&$conversationmap, &$rootcache): ?int {
+            if (isset($rootcache[$messageid])) {
+                return $rootcache[$messageid];
+            }
+            $currentid = $messageid;
+            $visited = [];
+            while (!empty($currentid) && isset($conversationmap[$currentid]) && !in_array($currentid, $visited, true)) {
+                $visited[] = $currentid;
+                $parentid = !empty($conversationmap[$currentid]->parentid) ? (int)$conversationmap[$currentid]->parentid : null;
+                if (empty($parentid) || !isset($conversationmap[$parentid])) {
+                    foreach ($visited as $visitedid) {
+                        $rootcache[$visitedid] = $currentid;
+                    }
+                    return $currentid;
+                }
+                $currentid = $parentid;
+            }
+            return null;
+        };
+
+        foreach ($conversationrows as $row) {
+            $page = $pagesbyid[(int)$row->pageid] ?? null;
+            if (!$page || ($page->type ?? '') !== 'aichat') {
+                continue;
+            }
+            $updaterecord = (object)['id' => $row->id];
+            $shouldupdate = false;
+            $behavior = $page->behavior ?? 'continuous';
+
+            if ($behavior === 'turns' && !empty($row->turn_id)) {
+                $updaterecord->iteration_type = 'turn';
+                $updaterecord->iteration_id = (int)$row->turn_id;
+                $shouldupdate = true;
+            } else if ($behavior === 'qa' && !empty($row->turn_id)) {
+                $updaterecord->iteration_type = 'qa';
+                $updaterecord->iteration_id = (int)$row->turn_id;
+                $shouldupdate = true;
+            } else if ($behavior === 'continuous') {
+                $rootid = $findconversationroot((int)$row->id);
+                if (!empty($rootid)) {
+                    $updaterecord->iteration_type = 'conversation';
+                    $updaterecord->iteration_id = $rootid;
+                    $shouldupdate = true;
+                }
+            }
+
+            if ($shouldupdate) {
+                $DB->update_record('harpiasurvey_conversations', $updaterecord);
+            }
+        }
+
+        $branches = $DB->get_records('harpiasurvey_turn_branches');
+        foreach ($branches as $branch) {
+            if (!empty($branch->modelid)) {
+                continue;
+            }
+            $resolvedmodelid = $DB->get_field_sql(
+                "SELECT modelid
+                   FROM {harpiasurvey_conversations}
+                  WHERE pageid = ? AND userid = ? AND turn_id = ? AND modelid IS NOT NULL
+               ORDER BY id ASC",
+                [(int)$branch->pageid, (int)$branch->userid, (int)$branch->child_turn_id],
+                IGNORE_MULTIPLE
+            );
+            if (empty($resolvedmodelid) && !empty($branch->parent_turn_id)) {
+                $resolvedmodelid = $DB->get_field_sql(
+                    "SELECT modelid
+                       FROM {harpiasurvey_conversations}
+                      WHERE pageid = ? AND userid = ? AND turn_id = ? AND modelid IS NOT NULL
+                   ORDER BY id ASC",
+                    [(int)$branch->pageid, (int)$branch->userid, (int)$branch->parent_turn_id],
+                    IGNORE_MULTIPLE
+                );
+            }
+            if (!empty($resolvedmodelid)) {
+                $DB->set_field('harpiasurvey_turn_branches', 'modelid', (int)$resolvedmodelid, ['id' => $branch->id]);
+            }
+        }
+
+        $resolveevaluationmeta = function(stdClass $page, int $userid, ?int $turnid, ?int $questionid = null) use ($DB, &$pagesbyid): array {
+            $meta = [
+                'modelid' => null,
+                'iteration_type' => null,
+                'iteration_id' => null,
+            ];
+            if (($page->type ?? '') !== 'aichat' || empty($turnid)) {
+                return $meta;
+            }
+            $behavior = $page->behavior ?? 'continuous';
+            if ($behavior === 'turns') {
+                $meta['iteration_type'] = 'turn';
+                $meta['iteration_id'] = (int)$turnid;
+                if (!empty($questionid)) {
+                    $showonlymodel = $DB->get_field('harpiasurvey_page_questions', 'show_only_model', [
+                        'pageid' => (int)$page->id,
+                        'questionid' => (int)$questionid
+                    ]);
+                    if (!empty($showonlymodel)) {
+                        $meta['modelid'] = (int)$showonlymodel;
+                    }
+                }
+                if (empty($meta['modelid'])) {
+                    $meta['modelid'] = $DB->get_field_sql(
+                        "SELECT modelid
+                           FROM {harpiasurvey_conversations}
+                          WHERE pageid = ? AND userid = ? AND turn_id = ? AND modelid IS NOT NULL
+                       ORDER BY id ASC",
+                        [(int)$page->id, $userid, (int)$turnid],
+                        IGNORE_MULTIPLE
+                    ) ?: $DB->get_field_sql(
+                        "SELECT modelid
+                           FROM {harpiasurvey_turn_branches}
+                          WHERE pageid = ? AND userid = ? AND child_turn_id = ? AND modelid IS NOT NULL
+                       ORDER BY id ASC",
+                        [(int)$page->id, $userid, (int)$turnid],
+                        IGNORE_MULTIPLE
+                    );
+                }
+                return $meta;
+            }
+            if ($behavior === 'qa') {
+                $meta['iteration_type'] = 'qa';
+                $meta['iteration_id'] = (int)$turnid;
+                $meta['modelid'] = $DB->get_field_sql(
+                    "SELECT modelid
+                       FROM {harpiasurvey_conversations}
+                      WHERE pageid = ? AND userid = ? AND turn_id = ? AND modelid IS NOT NULL
+                   ORDER BY id ASC",
+                    [(int)$page->id, $userid, (int)$turnid],
+                    IGNORE_MULTIPLE
+                );
+                return $meta;
+            }
+            if ($behavior === 'continuous') {
+                $meta['iteration_type'] = 'conversation';
+                $meta['iteration_id'] = (int)$turnid;
+                $meta['modelid'] = $DB->get_field_sql(
+                    "SELECT modelid
+                       FROM {harpiasurvey_conversations}
+                      WHERE id = ? AND pageid = ? AND userid = ? AND modelid IS NOT NULL
+                   ORDER BY id ASC",
+                    [(int)$turnid, (int)$page->id, $userid],
+                    IGNORE_MULTIPLE
+                );
+                return $meta;
+            }
+            if ($behavior === 'review_conversation') {
+                $meta['iteration_type'] = 'review_conversation';
+                $meta['iteration_id'] = (int)$turnid;
+                return $meta;
+            }
+            return $meta;
+        };
+
+        $responses = $DB->get_records_sql(
+            "SELECT id, pageid, questionid, userid, turn_id
+               FROM {harpiasurvey_responses}
+           ORDER BY id ASC"
+        );
+        foreach ($responses as $response) {
+            $page = $pagesbyid[(int)$response->pageid] ?? null;
+            if (!$page) {
+                continue;
+            }
+            $meta = $resolveevaluationmeta($page, (int)$response->userid, isset($response->turn_id) ? (int)$response->turn_id : null,
+                (int)$response->questionid);
+            $updaterecord = (object)['id' => $response->id];
+            $updaterecord->modelid = $meta['modelid'];
+            $updaterecord->iteration_type = $meta['iteration_type'];
+            $updaterecord->iteration_id = $meta['iteration_id'];
+            $DB->update_record('harpiasurvey_responses', $updaterecord);
+        }
+
+        if ($dbman->table_exists(new xmldb_table('harpiasurvey_response_history'))) {
+            $responsemetabyid = [];
+            $responses = $DB->get_records('harpiasurvey_responses', null, '', 'id, modelid, iteration_type, iteration_id');
+            foreach ($responses as $response) {
+                $responsemetabyid[(int)$response->id] = $response;
+            }
+
+            $historyrecords = $DB->get_records_sql(
+                "SELECT id, responseid, pageid, questionid, userid, turn_id
+                   FROM {harpiasurvey_response_history}
+               ORDER BY id ASC"
+            );
+            foreach ($historyrecords as $history) {
+                $updaterecord = (object)['id' => $history->id];
+                if (!empty($history->responseid) && isset($responsemetabyid[(int)$history->responseid])) {
+                    $responsemeta = $responsemetabyid[(int)$history->responseid];
+                    $updaterecord->modelid = $responsemeta->modelid;
+                    $updaterecord->iteration_type = $responsemeta->iteration_type;
+                    $updaterecord->iteration_id = $responsemeta->iteration_id;
+                } else {
+                    $page = $pagesbyid[(int)$history->pageid] ?? null;
+                    if (!$page) {
+                        continue;
+                    }
+                    $meta = $resolveevaluationmeta($page, (int)$history->userid, isset($history->turn_id) ? (int)$history->turn_id : null,
+                        (int)$history->questionid);
+                    $updaterecord->modelid = $meta['modelid'];
+                    $updaterecord->iteration_type = $meta['iteration_type'];
+                    $updaterecord->iteration_id = $meta['iteration_id'];
+                }
+                $DB->update_record('harpiasurvey_response_history', $updaterecord);
+            }
+        }
+
+        upgrade_mod_savepoint(true, 202603140001, 'harpiasurvey');
+    }
+
     return true;
 }

@@ -51,13 +51,11 @@
                     {{#models}}
                         <tr>
                             <td>
-                                {{#../editingmode}}
                                 {{#../canmanage}}
                                     <a href="{{editurl}}" class="text-decoration-none">
                                         <strong>{{name}}</strong>
                                     </a>
                                 {{/../canmanage}}
-                                {{/../editingmode}}
                                 {{^../canmanage}}
                                     <strong>{{name}}</strong>
                                 {{/../canmanage}}
@@ -97,16 +95,14 @@
                                 {{/../canmanage}}
                             </td>
                             <td>
-                                {{#../editingmode}}
-                                    {{#../canmanage}}
-                                        <a href="{{editurl}}" class="btn btn-sm btn-primary" title="{{../editlabel}}" data-testid="harpiasurvey-edit-model-{{id}}">
-                                            <i class="fa fa-edit" aria-hidden="true"></i> {{../editlabel}}
-                                        </a>
-                                        <a href="{{deleteurl}}" class="btn btn-sm btn-outline-danger" title="{{../deletelabel}}" data-testid="harpiasurvey-delete-model-{{id}}">
-                                            <i class="fa fa-trash" aria-hidden="true"></i>
-                                        </a>
-                                    {{/../canmanage}}
-                                {{/../editingmode}}
+                                {{#../canmanage}}
+                                    <a href="{{editurl}}" class="btn btn-sm btn-primary" title="{{../editlabel}}" data-testid="harpiasurvey-edit-model-{{id}}">
+                                        <i class="fa fa-edit" aria-hidden="true"></i> {{../editlabel}}
+                                    </a>
+                                    <a href="{{deleteurl}}" class="btn btn-sm btn-outline-danger" title="{{../deletelabel}}" data-testid="harpiasurvey-delete-model-{{id}}">
+                                        <i class="fa fa-trash" aria-hidden="true"></i> {{../deletelabel}}
+                                    </a>
+                                {{/../canmanage}}
                             </td>
                         </tr>
                     {{/models}}

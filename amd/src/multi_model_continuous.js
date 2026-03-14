@@ -86,6 +86,7 @@ const loadConversationEvaluationResponsesForModel = (pageid, modelid, conversati
         cmid: cmid,
         pageid: pageid,
         turn_id: conversationId,
+        modelid: modelid,
         sesskey: Config.sesskey
     });
 
@@ -868,10 +869,16 @@ const filterMessagesByConversationForModel = (pageid, modelId, conversationId) =
  * @param {number} pageid Page ID
  */
 const createNewRoot = (cmid, pageid) => {
+    const container = $(`.multi-model-chat-container[data-pageid="${pageid}"]`);
+    const activePane = container.find('.tab-pane.active[data-model-id]').first();
+    const activeModelId = activePane.length ? parseInt(activePane.data('model-id'), 10) : null;
     const params = new URLSearchParams();
     params.append('action', 'create_root');
     params.append('cmid', cmid);
     params.append('pageid', pageid);
+    if (activeModelId && !isNaN(activeModelId)) {
+        params.append('modelid', activeModelId);
+    }
     params.append('sesskey', Config.sesskey);
     
     return fetch(Config.wwwroot + '/mod/harpiasurvey/ajax.php', {

@@ -45,6 +45,264 @@ function mod_harpiasurvey_get_experiment_finalization_record(int $experimentid, 
 }
 
 /**
+ * Find the root message for a conversation chain.
+ *
+ * @param int $pageid
+ * @param int $userid
+ * @param int $messageid
+ * @return int|null
+ */
+function mod_harpiasurvey_get_conversation_root_message_id(int $pageid, int $userid, int $messageid): ?int {
+    global $DB;
+
+    if ($pageid <= 0 || $userid <= 0 || $messageid <= 0) {
+        return null;
+    }
+
+    $currentid = $messageid;
+    $visited = [];
+    while ($currentid > 0 && !in_array($currentid, $visited, true)) {
+        $visited[] = $currentid;
+        $record = $DB->get_record('harpiasurvey_conversations', [
+            'id' => $currentid,
+            'pageid' => $pageid,
+            'userid' => $userid
+        ], 'id,parentid', IGNORE_MISSING);
+        if (!$record) {
+            return null;
+        }
+        if (empty($record->parentid)) {
+            return (int)$record->id;
+        }
+        $currentid = (int)$record->parentid;
+    }
+
+    return null;
+}
+
+/**
+ * Resolve the model associated with a turn evaluation target.
+ *
+ * @param int $pageid
+ * @param int $userid
+ * @param int $turnid
+ * @param int|null $requestedmodelid
+ * @param int|null $questionid
+ * @return int|null
+ */
+function mod_harpiasurvey_resolve_turn_modelid(
+    int $pageid,
+    int $userid,
+    int $turnid,
+    ?int $requestedmodelid = null,
+    ?int $questionid = null
+): ?int {
+    global $DB;
+
+    if ($pageid <= 0 || $userid <= 0 || $turnid <= 0) {
+        return null;
+    }
+
+    if (!empty($questionid)) {
+        $showonlymodel = $DB->get_field('harpiasurvey_page_questions', 'show_only_model', [
+            'pageid' => $pageid,
+            'questionid' => $questionid
+        ]);
+        if (!empty($showonlymodel)) {
+            return (int)$showonlymodel;
+        }
+    }
+
+    if (!empty($requestedmodelid)) {
+        $hasconversationformodel = $DB->record_exists_select(
+            'harpiasurvey_conversations',
+            'pageid = :pageid AND userid = :userid AND turn_id = :turnid AND modelid = :modelid',
+            [
+                'pageid' => $pageid,
+                'userid' => $userid,
+                'turnid' => $turnid,
+                'modelid' => $requestedmodelid
+            ]
+        );
+        $hasbranchformodel = $DB->record_exists('harpiasurvey_turn_branches', [
+            'pageid' => $pageid,
+            'userid' => $userid,
+            'child_turn_id' => $turnid,
+            'modelid' => $requestedmodelid
+        ]);
+        if ($hasconversationformodel || $hasbranchformodel) {
+            return (int)$requestedmodelid;
+        }
+    }
+
+    $resolvedmodelid = $DB->get_field_sql(
+        "SELECT modelid
+           FROM {harpiasurvey_conversations}
+          WHERE pageid = ? AND userid = ? AND turn_id = ? AND modelid IS NOT NULL
+       ORDER BY id ASC",
+        [$pageid, $userid, $turnid],
+        IGNORE_MULTIPLE
+    );
+    if (!empty($resolvedmodelid)) {
+        return (int)$resolvedmodelid;
+    }
+
+    $resolvedmodelid = $DB->get_field_sql(
+        "SELECT modelid
+           FROM {harpiasurvey_turn_branches}
+          WHERE pageid = ? AND userid = ? AND child_turn_id = ? AND modelid IS NOT NULL
+       ORDER BY id ASC",
+        [$pageid, $userid, $turnid],
+        IGNORE_MULTIPLE
+    );
+    if (!empty($resolvedmodelid)) {
+        return (int)$resolvedmodelid;
+    }
+
+    return !empty($requestedmodelid) ? (int)$requestedmodelid : null;
+}
+
+/**
+ * Resolve the analytics iteration binding for an evaluation response.
+ *
+ * @param stdClass $page
+ * @param int $userid
+ * @param int|null $rawtargetid
+ * @param int|null $requestedmodelid
+ * @param int|null $questionid
+ * @return array{valid:bool,message:?string,turn_id:?int,modelid:?int,iteration_type:?string,iteration_id:?int}
+ */
+function mod_harpiasurvey_resolve_iteration_binding(
+    stdClass $page,
+    int $userid,
+    ?int $rawtargetid,
+    ?int $requestedmodelid = null,
+    ?int $questionid = null
+): array {
+    global $DB;
+
+    $result = [
+        'valid' => true,
+        'message' => null,
+        'turn_id' => $rawtargetid,
+        'modelid' => null,
+        'iteration_type' => null,
+        'iteration_id' => null,
+    ];
+
+    if (($page->type ?? '') !== 'aichat') {
+        return $result;
+    }
+
+    $behavior = $page->behavior ?? 'continuous';
+    if ($rawtargetid === null || $rawtargetid <= 0) {
+        $result['valid'] = false;
+        if ($behavior === 'turns') {
+            $result['message'] = get_string('turnevaluationrequiresturn', 'mod_harpiasurvey');
+        } else if ($behavior === 'review_conversation') {
+            $result['message'] = get_string('invalidreviewtarget', 'mod_harpiasurvey');
+        } else {
+            $result['message'] = get_string('invalidevaluationtarget', 'mod_harpiasurvey');
+        }
+        return $result;
+    }
+
+    if ($behavior === 'turns') {
+        $turnexists = $DB->record_exists('harpiasurvey_conversations', [
+            'pageid' => $page->id,
+            'userid' => $userid,
+            'turn_id' => $rawtargetid
+        ]) || $DB->record_exists('harpiasurvey_turn_branches', [
+            'pageid' => $page->id,
+            'userid' => $userid,
+            'child_turn_id' => $rawtargetid
+        ]);
+        if (!$turnexists) {
+            $result['valid'] = false;
+            $result['message'] = get_string('invalidturnevaluationtarget', 'mod_harpiasurvey');
+            return $result;
+        }
+        $result['modelid'] = mod_harpiasurvey_resolve_turn_modelid((int)$page->id, $userid, $rawtargetid, $requestedmodelid, $questionid);
+        $result['iteration_type'] = 'turn';
+        $result['iteration_id'] = $rawtargetid;
+        return $result;
+    }
+
+    if ($behavior === 'qa') {
+        $pairroot = $DB->get_record('harpiasurvey_conversations', [
+            'id' => $rawtargetid,
+            'pageid' => $page->id,
+            'userid' => $userid
+        ], 'id,modelid,turn_id,parentid', IGNORE_MISSING);
+        if (!$pairroot || (!empty($pairroot->turn_id) && (int)$pairroot->turn_id !== $rawtargetid)) {
+            $pairroot = $DB->get_record_sql(
+                "SELECT id, modelid, turn_id, parentid
+                   FROM {harpiasurvey_conversations}
+                  WHERE pageid = ? AND userid = ? AND turn_id = ?
+               ORDER BY id ASC",
+                [(int)$page->id, $userid, $rawtargetid],
+                IGNORE_MULTIPLE
+            );
+        }
+        if (!$pairroot) {
+            $result['valid'] = false;
+            $result['message'] = get_string('invalidevaluationtarget', 'mod_harpiasurvey');
+            return $result;
+        }
+        $resolvedmodelid = !empty($pairroot->modelid) ? (int)$pairroot->modelid : null;
+        if (!empty($requestedmodelid) && $resolvedmodelid !== null && $resolvedmodelid !== (int)$requestedmodelid) {
+            $result['valid'] = false;
+            $result['message'] = get_string('invalidevaluationtarget', 'mod_harpiasurvey');
+            return $result;
+        }
+        $result['modelid'] = $resolvedmodelid ?: (!empty($requestedmodelid) ? (int)$requestedmodelid : null);
+        $result['iteration_type'] = 'qa';
+        $result['iteration_id'] = $rawtargetid;
+        return $result;
+    }
+
+    if ($behavior === 'continuous') {
+        $root = $DB->get_record('harpiasurvey_conversations', [
+            'id' => $rawtargetid,
+            'pageid' => $page->id,
+            'userid' => $userid
+        ], 'id,modelid,parentid', IGNORE_MISSING);
+        if (!$root || !empty($root->parentid)) {
+            $result['valid'] = false;
+            $result['message'] = get_string('invalidevaluationtarget', 'mod_harpiasurvey');
+            return $result;
+        }
+        $resolvedmodelid = !empty($root->modelid) ? (int)$root->modelid : null;
+        if (!empty($requestedmodelid) && $resolvedmodelid !== null && $resolvedmodelid !== (int)$requestedmodelid) {
+            $result['valid'] = false;
+            $result['message'] = get_string('invalidevaluationtarget', 'mod_harpiasurvey');
+            return $result;
+        }
+        $result['modelid'] = $resolvedmodelid ?: (!empty($requestedmodelid) ? (int)$requestedmodelid : null);
+        $result['iteration_type'] = 'conversation';
+        $result['iteration_id'] = $rawtargetid;
+        return $result;
+    }
+
+    if ($behavior === 'review_conversation') {
+        if (!$DB->record_exists('harpiasurvey_review_targets', [
+            'id' => $rawtargetid,
+            'pageid' => $page->id,
+            'userid' => $userid
+        ])) {
+            $result['valid'] = false;
+            $result['message'] = get_string('invalidreviewtarget', 'mod_harpiasurvey');
+            return $result;
+        }
+        $result['iteration_type'] = 'review_conversation';
+        $result['iteration_id'] = $rawtargetid;
+        return $result;
+    }
+
+    return $result;
+}
+
+/**
  * Build applicable evaluation scopes for an AI page.
  *
  * @param stdClass $page

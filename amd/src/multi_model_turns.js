@@ -783,6 +783,7 @@ const loadTurnEvaluationResponsesForModel = (pageid, modelid, turn) => {
         cmid: cmid,
         pageid: pageid,
         turn_id: turn,
+        modelid: modelid,
         sesskey: Config.sesskey
     });
 
@@ -1528,6 +1529,8 @@ const navigateToTurnForModel = (pageid, modelid, turnId) => {
  * @param {jQuery} button Button element
  */
 const createBranchFromTurnForModel = (cmid, pageid, turnId, button) => {
+    const container = $(`.multi-model-chat-container[data-pageid="${pageid}"]`);
+    const activeModelId = parseInt(container.find('.tab-pane.active').data('model-id'), 10);
     // Similar to turns.js createBranchFromTurn
     // Implementation would create a new branch from the specified turn
     // For now, use a simplified version
@@ -1536,6 +1539,9 @@ const createBranchFromTurnForModel = (cmid, pageid, turnId, button) => {
     params.append('cmid', cmid);
     params.append('pageid', pageid);
     params.append('parent_turn_id', turnId);
+    if (activeModelId && !isNaN(activeModelId)) {
+        params.append('modelid', activeModelId);
+    }
     params.append('sesskey', Config.sesskey);
     
     fetch(Config.wwwroot + '/mod/harpiasurvey/ajax.php', {
@@ -1562,9 +1568,6 @@ const createBranchFromTurnForModel = (cmid, pageid, turnId, button) => {
                 sidebar.data('branch-root', turnId);
                 sidebar.data('sidebar-view', 'detail');
             }
-
-            const container = $(`.multi-model-chat-container[data-pageid="${pageid}"]`);
-            const activeModelId = parseInt(container.find('.tab-pane.active').data('model-id'), 10);
             if (activeModelId && data.new_turn_id) {
                 navigateToTurnForModel(pageid, activeModelId, parseInt(data.new_turn_id, 10));
             } else {
@@ -1986,10 +1989,16 @@ function registerTreeHandlers() {
  * @param {number} pageid Page ID
  */
 const createNewRootForModel = (cmid, pageid) => {
+    const container = $(`.multi-model-chat-container[data-pageid="${pageid}"]`);
+    const activeTab = container.find('.tab-pane.active');
+    const activeModelId = parseInt(activeTab.data('model-id'), 10);
     const params = new URLSearchParams();
     params.append('action', 'create_root');
     params.append('cmid', cmid);
     params.append('pageid', pageid);
+    if (activeModelId && !isNaN(activeModelId)) {
+        params.append('modelid', activeModelId);
+    }
     params.append('sesskey', Config.sesskey);
     
     fetch(Config.wwwroot + '/mod/harpiasurvey/ajax.php', {
@@ -2002,10 +2011,6 @@ const createNewRootForModel = (cmid, pageid) => {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            const container = $(`.multi-model-chat-container[data-pageid="${pageid}"]`);
-            const activeTab = container.find('.tab-pane.active');
-            const activeModelId = parseInt(activeTab.data('model-id'), 10);
-            
             // Clear all message containers and show placeholder
             container.find('.tab-pane[data-model-id]').each(function() {
                 const modelid = parseInt($(this).data('model-id'), 10);
@@ -2193,6 +2198,7 @@ const saveTurnEvaluationResponsesForModel = (cmid, pageid, modelid, turnId, resp
                 questionid: questionId,
                 response: response,
                 turn_id: turnId,
+                modelid: modelid,
                 sesskey: Config.sesskey
             });
 

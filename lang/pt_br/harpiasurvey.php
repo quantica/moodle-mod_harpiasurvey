@@ -220,6 +220,7 @@ $string['reviewnodatayet'] = 'Nenhum dataset de conversa disponível ainda.';
 $string['reviewthreads'] = 'Conversas';
 $string['reviewselectthread'] = 'Selecione uma conversa para revisar.';
 $string['invalidreviewtarget'] = 'Alvo de revisão inválido.';
+$string['invalidevaluationtarget'] = 'Alvo de avaliação inválido para esta iteração da conversa.';
 $string['invalidbehaviorforaction'] = 'Esta ação não está disponível para o modo de avaliação selecionado.';
 $string['reviewimportsuccess'] = 'Dataset de conversa importado: {$a->rows} mensagem(ns), {$a->threads} conversa(s).';
 $string['reviewimporterror'] = 'Não foi possível importar o dataset de conversa: {$a}';

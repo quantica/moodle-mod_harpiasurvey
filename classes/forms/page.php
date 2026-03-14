@@ -291,14 +291,16 @@ class page extends \moodleform {
             if (!empty($modeloptions)) {
                 // Load selected models for this page BEFORE adding the element.
                 $pageid = isset($this->_customdata->id) ? $this->_customdata->id : 0;
-                $selectedmodelids = [];
+                $selectedmodelid = null;
                 if ($pageid) {
                     $selectedmodels = $DB->get_records('harpiasurvey_page_models', ['pageid' => $pageid], '', 'modelid');
                     $selectedmodelids = array_keys($selectedmodels);
+                    if (!empty($selectedmodelids)) {
+                        $selectedmodelid = (int)reset($selectedmodelids);
+                    }
                 }
                 
                 $mform->addElement('autocomplete', 'pagemodels', get_string('aimodels', 'mod_harpiasurvey'), $modeloptions, [
-                    'multiple' => true,
                     'noselectionstring' => get_string('noselection', 'mod_harpiasurvey'),
                 ]);
                 $mform->setType('pagemodels', PARAM_INT);
@@ -306,8 +308,8 @@ class page extends \moodleform {
                 
                 // Set default values if we have selected models.
                 // Note: setDefault must be called before hideIf to ensure values are loaded.
-                if (!empty($selectedmodelids)) {
-                    $mform->setDefault('pagemodels', $selectedmodelids);
+                if ($selectedmodelid !== null) {
+                    $mform->setDefault('pagemodels', $selectedmodelid);
                 }
                 
                 // Only show when type is aichat.
@@ -597,12 +599,13 @@ class page extends \moodleform {
             $selectedmodelids = array_keys($selectedmodels);
             
             if (!empty($selectedmodelids)) {
+                $selectedmodelid = (int)reset($selectedmodelids);
                 // Get current value from form.
                 $currentvalue = $mform->getElementValue('pagemodels');
                 
                 // If no value is set, set it to the selected models.
                 if (empty($currentvalue)) {
-                    $mform->setDefault('pagemodels', $selectedmodelids);
+                    $mform->setDefault('pagemodels', $selectedmodelid);
                 }
             }
         }

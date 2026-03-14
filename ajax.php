@@ -601,6 +601,8 @@ switch ($action) {
         
         $questionid = required_param('questionid', PARAM_INT);
         $response = optional_param('response', '', PARAM_RAW);
+        $requestedmodelid = optional_param('modelid', 0, PARAM_INT);
+        $requestedmodelid = $requestedmodelid > 0 ? $requestedmodelid : null;
         // Get turn_id - can be 0 or positive integer, or null for regular questions.
         $turn_id_param = optional_param('turn_id', null, PARAM_RAW);
         $turn_id = null;
@@ -631,75 +633,50 @@ switch ($action) {
             harpiasurvey_ajax_emit_finalized_error();
             break;
         }
-
-        // For turns mode, every evaluation response must be explicitly tied to a turn.
-        if ($page->type === 'aichat' && ($page->behavior ?? '') === 'turns') {
-            if ($turn_id === null) {
-                echo json_encode([
-                    'success' => false,
-                    'message' => get_string('turnevaluationrequiresturn', 'mod_harpiasurvey')
-                ]);
-                break;
-            }
-
-            $turnexists = $DB->record_exists('harpiasurvey_conversations', [
-                'pageid' => $pageid,
-                'userid' => $USER->id,
-                'turn_id' => $turn_id
-            ]) || $DB->record_exists('harpiasurvey_turn_branches', [
-                'pageid' => $pageid,
-                'userid' => $USER->id,
-                'child_turn_id' => $turn_id
-            ]);
-
-            if (!$turnexists) {
-                echo json_encode([
-                    'success' => false,
-                    'message' => get_string('invalidturnevaluationtarget', 'mod_harpiasurvey')
-                ]);
-                break;
-            }
-        }
-
-        // For review conversation mode, responses must map to a valid review target.
-        if ($page->type === 'aichat' && ($page->behavior ?? '') === 'review_conversation') {
-            if ($turn_id === null) {
-                echo json_encode([
-                    'success' => false,
-                    'message' => get_string('invalidreviewtarget', 'mod_harpiasurvey')
-                ]);
-                break;
-            }
-            $target = $DB->get_record('harpiasurvey_review_targets', [
-                'id' => $turn_id,
-                'pageid' => $pageid,
-                'userid' => $USER->id
-            ]);
-            if (!$target) {
-                echo json_encode([
-                    'success' => false,
-                    'message' => get_string('invalidreviewtarget', 'mod_harpiasurvey')
-                ]);
-                break;
-            }
-        }
         
         // Verify question belongs to this harpiasurvey instance.
         $question = $DB->get_record('harpiasurvey_questions', [
             'id' => $questionid,
             'harpiasurveyid' => $harpiasurvey->id
         ], '*', MUST_EXIST);
+
+        $binding = mod_harpiasurvey_resolve_iteration_binding($page, (int)$USER->id, $turn_id, $requestedmodelid, $questionid);
+        if (!$binding['valid']) {
+            echo json_encode([
+                'success' => false,
+                'message' => $binding['message'] ?? get_string('invalidevaluationtarget', 'mod_harpiasurvey')
+            ]);
+            break;
+        }
+
+        $turn_id = $binding['turn_id'];
+        $responsemodelid = $binding['modelid'];
+        $iterationtype = $binding['iteration_type'];
+        $iterationid = $binding['iteration_id'];
         
         // Check if response already exists.
         // Use SQL to properly handle NULL values for turn_id.
         if ($turn_id !== null) {
-            // For turn evaluation questions, search with specific turn_id.
-            $existing = $DB->get_record('harpiasurvey_responses', [
-                'pageid' => $pageid,
-                'questionid' => $questionid,
-                'userid' => $USER->id,
-                'turn_id' => $turn_id
-            ]);
+            if ($responsemodelid !== null) {
+                $existing = $DB->get_record_sql(
+                    "SELECT *
+                       FROM {harpiasurvey_responses}
+                      WHERE pageid = ? AND questionid = ? AND userid = ? AND turn_id = ?
+                        AND (modelid = ? OR modelid IS NULL)
+                   ORDER BY CASE WHEN modelid = ? THEN 0 ELSE 1 END, id ASC",
+                    [$pageid, $questionid, $USER->id, $turn_id, $responsemodelid, $responsemodelid],
+                    IGNORE_MULTIPLE
+                );
+            } else {
+                $existing = $DB->get_record_sql(
+                    "SELECT *
+                       FROM {harpiasurvey_responses}
+                      WHERE pageid = ? AND questionid = ? AND userid = ? AND turn_id = ?
+                   ORDER BY id ASC",
+                    [$pageid, $questionid, $USER->id, $turn_id],
+                    IGNORE_MULTIPLE
+                );
+            }
         } else {
             // For regular questions, turn_id must be NULL.
             $existing = $DB->get_record_sql(
@@ -717,6 +694,9 @@ switch ($action) {
             if ($turn_id !== null) {
                 $existing->turn_id = $turn_id;
             }
+            $existing->modelid = $responsemodelid;
+            $existing->iteration_type = $iterationtype;
+            $existing->iteration_id = $iterationid;
             $DB->update_record('harpiasurvey_responses', $existing);
 
             // Log history entry.
@@ -726,8 +706,11 @@ switch ($action) {
                 $history->pageid = $pageid;
                 $history->questionid = $questionid;
                 $history->userid = $USER->id;
+                $history->modelid = $responsemodelid;
                 $history->response = $response;
                 $history->turn_id = $turn_id;
+                $history->iteration_type = $iterationtype;
+                $history->iteration_id = $iterationid;
                 $history->timecreated = time();
                 $DB->insert_record('harpiasurvey_response_history', $history);
             }
@@ -737,6 +720,7 @@ switch ($action) {
             $newresponse->pageid = $pageid;
             $newresponse->questionid = $questionid;
             $newresponse->userid = $USER->id;
+            $newresponse->modelid = $responsemodelid;
             $newresponse->response = $response;
             // Explicitly set turn_id - use null for regular questions, integer for turn evaluations.
             if ($turn_id !== null) {
@@ -744,6 +728,8 @@ switch ($action) {
             } else {
                 $newresponse->turn_id = null;
             }
+            $newresponse->iteration_type = $iterationtype;
+            $newresponse->iteration_id = $iterationid;
             $newresponse->timecreated = time();
             $newresponse->timemodified = time();
             $insertedid = $DB->insert_record('harpiasurvey_responses', $newresponse);
@@ -755,8 +741,11 @@ switch ($action) {
                 $history->pageid = $pageid;
                 $history->questionid = $questionid;
                 $history->userid = $USER->id;
+                $history->modelid = $responsemodelid;
                 $history->response = $response;
                 $history->turn_id = $turn_id;
+                $history->iteration_type = $iterationtype;
+                $history->iteration_id = $iterationid;
                 $history->timecreated = time();
                 $DB->insert_record('harpiasurvey_response_history', $history);
             }
@@ -781,6 +770,8 @@ switch ($action) {
         require_sesskey();
 
         $turn_id = required_param('turn_id', PARAM_INT);
+        $requestedmodelid = optional_param('modelid', 0, PARAM_INT);
+        $requestedmodelid = $requestedmodelid > 0 ? $requestedmodelid : null;
 
         // Verify page belongs to this harpiasurvey instance.
         if (!$page || $page->id != $pageid) {
@@ -855,22 +846,31 @@ switch ($action) {
             return $value;
         };
 
-        // Get all responses for this turn.
-        $responses = $DB->get_records('harpiasurvey_responses', [
-            'pageid' => $pageid,
-            'userid' => $USER->id,
-            'turn_id' => $turn_id
-        ], 'questionid ASC', 'questionid, response, timemodified');
+        $responseparams = ['pageid' => $pageid, 'userid' => $USER->id, 'turn_id' => $turn_id];
+        $responsesql = "SELECT questionid, response, timemodified
+                          FROM {harpiasurvey_responses}
+                         WHERE pageid = :pageid AND userid = :userid AND turn_id = :turn_id";
+        if (($page->type ?? '') === 'aichat' && $requestedmodelid !== null) {
+            $responsesql .= " AND (modelid = :modelid OR modelid IS NULL)";
+            $responseparams['modelid'] = $requestedmodelid;
+            $responsesql .= " ORDER BY questionid ASC, CASE WHEN modelid = :modelid THEN 1 ELSE 0 END ASC";
+        } else {
+            $responsesql .= " ORDER BY questionid ASC";
+        }
+        $responses = $DB->get_records_sql($responsesql, $responseparams);
 
         $historyrecords = [];
         if ($DB->get_manager()->table_exists('harpiasurvey_response_history')) {
-            $historyrecords = $DB->get_records_sql(
-                "SELECT id, questionid, response, timecreated
-                   FROM {harpiasurvey_response_history}
-                  WHERE pageid = :pageid AND userid = :userid AND turn_id = :turn_id
-               ORDER BY timecreated ASC",
-                ['pageid' => $pageid, 'userid' => $USER->id, 'turn_id' => $turn_id]
-            );
+            $historysql = "SELECT id, questionid, response, timecreated
+                             FROM {harpiasurvey_response_history}
+                            WHERE pageid = :pageid AND userid = :userid AND turn_id = :turn_id";
+            $historyparams = ['pageid' => $pageid, 'userid' => $USER->id, 'turn_id' => $turn_id];
+            if (($page->type ?? '') === 'aichat' && $requestedmodelid !== null) {
+                $historysql .= " AND (modelid = :modelid OR modelid IS NULL)";
+                $historyparams['modelid'] = $requestedmodelid;
+            }
+            $historysql .= " ORDER BY timecreated ASC";
+            $historyrecords = $DB->get_records_sql($historysql, $historyparams);
         }
         $historybyquestion = [];
         foreach ($historyrecords as $record) {
@@ -918,6 +918,8 @@ switch ($action) {
         require_sesskey();
 
         $turn_id = required_param('turn_id', PARAM_INT);
+        $requestedmodelid = optional_param('modelid', 0, PARAM_INT);
+        $requestedmodelid = $requestedmodelid > 0 ? $requestedmodelid : null;
 
         if (!$page || $page->id != $pageid) {
             $page = $DB->get_record('harpiasurvey_pages', ['id' => $pageid], '*', MUST_EXIST);
@@ -932,6 +934,7 @@ switch ($action) {
         }
         $questions = $DB->get_records_sql(
             "SELECT pq.id, pq.questionid, pq.enabled, pq.required, pq.min_turn, pq.show_only_turn, pq.hide_on_turn,
+                    pq.show_only_model, pq.hide_on_model,
                     q.name, q.type, q.description, q.descriptionformat, q.settings
                FROM {harpiasurvey_page_questions} pq
                JOIN {harpiasurvey_questions} q ON q.id = pq.questionid
@@ -942,13 +945,16 @@ switch ($action) {
 
         $historybyquestion = [];
         if ($DB->get_manager()->table_exists('harpiasurvey_response_history')) {
-            $historyrecords = $DB->get_records_sql(
-                "SELECT id, questionid, response, timecreated
-                   FROM {harpiasurvey_response_history}
-                  WHERE pageid = :pageid AND userid = :userid AND turn_id = :turn_id
-               ORDER BY timecreated ASC",
-                ['pageid' => $pageid, 'userid' => $USER->id, 'turn_id' => $turn_id]
-            );
+            $historysql = "SELECT id, questionid, response, timecreated
+                             FROM {harpiasurvey_response_history}
+                            WHERE pageid = :pageid AND userid = :userid AND turn_id = :turn_id";
+            $historyparams = ['pageid' => $pageid, 'userid' => $USER->id, 'turn_id' => $turn_id];
+            if (($page->type ?? '') === 'aichat' && $requestedmodelid !== null) {
+                $historysql .= " AND (modelid = :modelid OR modelid IS NULL)";
+                $historyparams['modelid'] = $requestedmodelid;
+            }
+            $historysql .= " ORDER BY timecreated ASC";
+            $historyrecords = $DB->get_records_sql($historysql, $historyparams);
             foreach ($historyrecords as $record) {
                 if (!isset($historybyquestion[$record->questionid])) {
                     $historybyquestion[$record->questionid] = [];
@@ -957,11 +963,18 @@ switch ($action) {
             }
         }
 
-        $responses = $DB->get_records('harpiasurvey_responses', [
-            'pageid' => $pageid,
-            'userid' => $USER->id,
-            'turn_id' => $turn_id
-        ], 'questionid ASC', 'questionid, response, timemodified');
+        $responseparams = ['pageid' => $pageid, 'userid' => $USER->id, 'turn_id' => $turn_id];
+        $responsesql = "SELECT questionid, response, timemodified
+                          FROM {harpiasurvey_responses}
+                         WHERE pageid = :pageid AND userid = :userid AND turn_id = :turn_id";
+        if (($page->type ?? '') === 'aichat' && $requestedmodelid !== null) {
+            $responsesql .= " AND (modelid = :modelid OR modelid IS NULL)";
+            $responseparams['modelid'] = $requestedmodelid;
+            $responsesql .= " ORDER BY questionid ASC, CASE WHEN modelid = :modelid THEN 1 ELSE 0 END ASC";
+        } else {
+            $responsesql .= " ORDER BY questionid ASC";
+        }
+        $responses = $DB->get_records_sql($responsesql, $responseparams);
         $responsesbyquestion = [];
         foreach ($responses as $response) {
             $responsesbyquestion[$response->questionid] = $response;
@@ -1005,6 +1018,8 @@ switch ($action) {
             $minturn = isset($question->min_turn) && $question->min_turn !== null ? (int)$question->min_turn : 1;
             $showonlyturn = isset($question->show_only_turn) && $question->show_only_turn !== null ? (int)$question->show_only_turn : null;
             $hideonturn = isset($question->hide_on_turn) && $question->hide_on_turn !== null ? (int)$question->hide_on_turn : null;
+            $showonlymodel = isset($question->show_only_model) && $question->show_only_model !== null ? (int)$question->show_only_model : null;
+            $hideonmodel = isset($question->hide_on_model) && $question->hide_on_model !== null ? (int)$question->hide_on_model : null;
 
             if ($behavior !== 'qa') {
                 if ($showonlyturn !== null && $showonlyturn !== (int)$turn_id) {
@@ -1014,6 +1029,15 @@ switch ($action) {
                     continue;
                 }
                 if ($minturn > (int)$turn_id) {
+                    continue;
+                }
+            }
+
+            if ($requestedmodelid !== null) {
+                if ($showonlymodel !== null && $showonlymodel !== $requestedmodelid) {
+                    continue;
+                }
+                if ($hideonmodel !== null && $hideonmodel === $requestedmodelid) {
                     continue;
                 }
             }
@@ -1386,15 +1410,35 @@ switch ($action) {
         $usermessage->content = $message;
         $usermessage->parentid = $parentid > 0 ? $parentid : null;
         $usermessage->turn_id = $turn_id;
+        $usermessage->iteration_type = ($behavior === 'turns' && !empty($turn_id)) ? 'turn' : null;
+        $usermessage->iteration_id = ($behavior === 'turns' && !empty($turn_id)) ? $turn_id : null;
         $usermessage->timecreated = time();
         $usermessageid = $DB->insert_record('harpiasurvey_conversations', $usermessage);
 
         // In Q&A mode, each question/answer pair must have its own evaluation scope.
         // Use the root user message id as the pair identifier and persist it as turn_id
         // on both user and assistant messages.
+        $root_conversation_id = null;
         if ($behavior === 'qa') {
             $turn_id = (int)$usermessageid;
-            $DB->set_field('harpiasurvey_conversations', 'turn_id', $turn_id, ['id' => $usermessageid]);
+            $DB->update_record('harpiasurvey_conversations', (object)[
+                'id' => $usermessageid,
+                'turn_id' => $turn_id,
+                'iteration_type' => 'qa',
+                'iteration_id' => $turn_id
+            ]);
+        } else if ($behavior === 'continuous') {
+            if (!empty($usermessage->parentid)) {
+                $root_conversation_id = mod_harpiasurvey_get_conversation_root_message_id($pageid, (int)$USER->id, (int)$usermessage->parentid);
+            }
+            if (empty($root_conversation_id)) {
+                $root_conversation_id = (int)$usermessageid;
+            }
+            $DB->update_record('harpiasurvey_conversations', (object)[
+                'id' => $usermessageid,
+                'iteration_type' => 'conversation',
+                'iteration_id' => $root_conversation_id
+            ]);
         }
         
         // Get conversation history for context (if chat mode).
@@ -1476,25 +1520,6 @@ switch ($action) {
         $response = $llmservice->send_message($history);
         
         if ($response['success']) {
-            // For continuous mode, determine the root conversation ID for the response.
-            $root_conversation_id = null;
-            if ($behavior === 'continuous') {
-                if ($usermessage->parentid) {
-                    // Find the root of this conversation (traverse up to find message with parentid = null).
-                    $currentid = $usermessage->parentid;
-                    while ($currentid) {
-                        $parentmsg = $DB->get_record('harpiasurvey_conversations', ['id' => $currentid]);
-                        if (!$parentmsg || !$parentmsg->parentid) {
-                            $root_conversation_id = $currentid;
-                            break;
-                        }
-                        $currentid = $parentmsg->parentid;
-                    }
-                } else {
-                    // This is a new root conversation - use the user message ID as root.
-                    $root_conversation_id = $usermessageid;
-                }
-            }
             // Save AI response to database (store raw markdown).
             $aimessage = new stdClass();
             $aimessage->pageid = $pageid;
@@ -1505,6 +1530,16 @@ switch ($action) {
             $aimessage->content = $response['content'];
             $aimessage->parentid = $usermessageid;
             $aimessage->turn_id = $turn_id; // Same turn_id as user message.
+            if ($behavior === 'turns' && !empty($turn_id)) {
+                $aimessage->iteration_type = 'turn';
+                $aimessage->iteration_id = $turn_id;
+            } else if ($behavior === 'qa' && !empty($turn_id)) {
+                $aimessage->iteration_type = 'qa';
+                $aimessage->iteration_id = $turn_id;
+            } else if ($behavior === 'continuous' && !empty($root_conversation_id)) {
+                $aimessage->iteration_type = 'conversation';
+                $aimessage->iteration_id = $root_conversation_id;
+            }
             $aimessage->timecreated = time();
             $aimessageid = $DB->insert_record('harpiasurvey_conversations', $aimessage);
             
@@ -1956,6 +1991,8 @@ switch ($action) {
         }
 
         $parent_turn_id = required_param('parent_turn_id', PARAM_INT);
+        $requestedmodelid = optional_param('modelid', 0, PARAM_INT);
+        $requestedmodelid = $requestedmodelid > 0 ? $requestedmodelid : null;
         
         // Verify parent turn exists - check both conversations and branches tables.
         $parentTurnExists = false;
@@ -2084,6 +2121,7 @@ switch ($action) {
         $branch = new stdClass();
         $branch->pageid = $pageid;
         $branch->userid = $USER->id;
+        $branch->modelid = mod_harpiasurvey_resolve_turn_modelid($pageid, (int)$USER->id, $parent_turn_id, $requestedmodelid);
         $branch->parent_turn_id = $parent_turn_id;
         $branch->child_turn_id = $new_turn_id;
         $branch->branch_label = (string)$new_turn_id; // Store just the turn number
@@ -2101,7 +2139,7 @@ switch ($action) {
                 'enabled' => 1
             ], 'id', IGNORE_MULTIPLE);
         }
-        $modelid = $pagemodel ? $pagemodel->modelid ?? $pagemodel->id : null;
+        $modelid = !empty($branch->modelid) ? (int)$branch->modelid : ($pagemodel ? $pagemodel->modelid ?? $pagemodel->id : null);
 
         if ($modelid) {
             $placeholder = new stdClass();
@@ -2112,6 +2150,8 @@ switch ($action) {
             $placeholder->parentid = null;
             $placeholder->role = 'user';
             $placeholder->content = '[New conversation - send a message to start]';
+            $placeholder->iteration_type = 'turn';
+            $placeholder->iteration_id = $new_turn_id;
             $placeholder->timecreated = time();
             $placeholder->timemodified = time();
             $newconversationid = $DB->insert_record('harpiasurvey_conversations', $placeholder);
@@ -2147,11 +2187,22 @@ switch ($action) {
 
         // Get behavior from page.
         $behavior = $page->behavior ?? 'continuous';
-        
+        $requestedmodelid = optional_param('modelid', 0, PARAM_INT);
+        $requestedmodelid = $requestedmodelid > 0 ? $requestedmodelid : null;
+
         // Get the first model associated with this page.
-        $pagemodel = $DB->get_record('harpiasurvey_page_models', [
-            'pageid' => $pageid
-        ], '*', IGNORE_MULTIPLE);
+        $pagemodel = null;
+        if (!empty($requestedmodelid)) {
+            $pagemodel = $DB->get_record('harpiasurvey_page_models', [
+                'pageid' => $pageid,
+                'modelid' => $requestedmodelid
+            ]);
+        }
+        if (!$pagemodel) {
+            $pagemodel = $DB->get_record('harpiasurvey_page_models', [
+                'pageid' => $pageid
+            ], '*', IGNORE_MULTIPLE);
+        }
         
         if (!$pagemodel) {
             // Fallback: get the first enabled model for this harpiasurvey instance.
@@ -2186,11 +2237,17 @@ switch ($action) {
             $placeholder->timecreated = time();
             $placeholder->timemodified = time();
             $new_conversation_id = $DB->insert_record('harpiasurvey_conversations', $placeholder);
+            $DB->update_record('harpiasurvey_conversations', (object)[
+                'id' => $new_conversation_id,
+                'iteration_type' => 'conversation',
+                'iteration_id' => $new_conversation_id
+            ]);
             
             echo json_encode([
                 'success' => true,
                 'new_turn_id' => $new_conversation_id, // Use conversation ID as identifier.
                 'new_conversation_id' => $new_conversation_id,
+                'root_id' => $new_conversation_id,
                 'message' => 'New root conversation created. Send a message to start it.'
             ]);
         } else {
@@ -2228,6 +2285,8 @@ switch ($action) {
             $placeholder->turn_id = $new_turn_id;
             $placeholder->role = 'user';
             $placeholder->content = '[New conversation - send a message to start]';
+            $placeholder->iteration_type = 'turn';
+            $placeholder->iteration_id = $new_turn_id;
             $placeholder->timecreated = time();
             $placeholder->timemodified = time();
             $DB->insert_record('harpiasurvey_conversations', $placeholder);

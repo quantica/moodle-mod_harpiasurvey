@@ -292,8 +292,19 @@ const saveAllResponses = (cmid, pageid, questionsToSave, button, statusDiv) => {
         '.multi-model-chat-container[data-pageid="' + pageid + '"]'
     ).first();
     let turnId = null;
+    let modelId = null;
     if (container.length > 0) {
         const behavior = container.data('behavior');
+        const activePane = button.closest('.tab-pane[data-model-id]');
+        if (activePane.length > 0) {
+            modelId = parseInt(activePane.data('model-id'), 10);
+        }
+        if ((!modelId || isNaN(modelId)) && container.hasClass('multi-model-chat-container')) {
+            const currentPane = container.find('.tab-pane.active[data-model-id]').first();
+            if (currentPane.length > 0) {
+                modelId = parseInt(currentPane.data('model-id'), 10);
+            }
+        }
         if (behavior === 'turns') {
             // Get current viewing turn from the container.
             const viewingTurn = container.attr('data-viewing-turn');
@@ -372,6 +383,9 @@ const saveAllResponses = (cmid, pageid, questionsToSave, button, statusDiv) => {
                 // Add turn_id if this is a turns mode page.
                 if (turnId !== null && turnId > 0) {
                     params.append('turn_id', turnId);
+                }
+                if (modelId !== null && !isNaN(modelId) && modelId > 0) {
+                    params.append('modelid', modelId);
                 }
 
                 fetch(Config.wwwroot + '/mod/harpiasurvey/ajax.php?' + params.toString(), {

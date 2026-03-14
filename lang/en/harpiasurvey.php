@@ -207,6 +207,7 @@ $string['reviewnodatayet'] = 'No conversation dataset available yet.';
 $string['reviewthreads'] = 'Conversations';
 $string['reviewselectthread'] = 'Select a conversation to review.';
 $string['invalidreviewtarget'] = 'Invalid review target.';
+$string['invalidevaluationtarget'] = 'Invalid evaluation target for this conversation iteration.';
 $string['invalidbehaviorforaction'] = 'This action is not available for the selected evaluation mode.';
 $string['reviewimportsuccess'] = 'Conversation dataset imported: {$a->rows} message(s), {$a->threads} conversation(s).';
 $string['reviewimporterror'] = 'Could not import conversation dataset: {$a}';
